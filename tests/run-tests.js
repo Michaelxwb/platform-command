@@ -5,8 +5,41 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mergeParams } from '../src/command_store.js';
 import { buildWorkflowPlan } from '../src/workflow.js';
 import { verifyCommand } from '../src/verify.js';
+import { formatHumanReadable, parseNaturalLanguage } from '../src/nl.js';
 
 const commandsDir = path.join(process.cwd(), 'commands');
+
+const nlIssues = parseNaturalLanguage('在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all');
+assert.equal(nlIssues.command, 'github.list_issues');
+assert.deepEqual(nlIssues.params, { owner: 'zhaoxuya520', repo: 'reverse-skill', state: 'all' });
+assert.ok(nlIssues.confidence >= 0.95);
+
+const nlCommits = parseNaturalLanguage('列出 GitHub 仓库 Michaelxwb/platform-command 的 commits，分支 master');
+assert.equal(nlCommits.command, 'github.list_commits');
+assert.deepEqual(nlCommits.params, { owner: 'Michaelxwb', repo: 'platform-command', branch: 'master' });
+
+const nlSearch = parseNaturalLanguage('在 GitHub 搜索仓库 platform-command user:Michaelxwb，最多 3');
+assert.equal(nlSearch.command, 'github.search_repositories');
+assert.equal(nlSearch.params.query, 'platform-command user:Michaelxwb');
+assert.equal(nlSearch.params.limit, 3);
+
+const nlInspect = parseNaturalLanguage('巡检 GitHub 仓库 Michaelxwb/platform-command');
+assert.equal(nlInspect.command, 'github.inspect_repository');
+assert.deepEqual(nlInspect.params, { owner: 'Michaelxwb', repo: 'platform-command', branch: 'master' });
+
+const readable = formatHumanReadable({
+  parsed: nlIssues,
+  result: {
+    status: 'dry_run',
+    riskLevel: 'low',
+    params: nlIssues.params,
+    plan: { kind: 'workflow', steps: [{ id: 'issues_api', type: 'api' }, { id: 'issues_page', type: 'ui' }] }
+  }
+});
+assert.ok(readable.includes('已识别并调用封装 Workflow'));
+assert.ok(readable.includes('github.list_issues'));
+assert.ok(readable.includes('issues_api(api) -> issues_page(ui)'));
+
 
 const demo = verifyCommand('demo.search_example');
 assert.equal(demo.ok, true, demo.errors.join('\n'));
