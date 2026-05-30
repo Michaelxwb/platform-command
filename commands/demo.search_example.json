@@ -1,0 +1,47 @@
+{
+  "name": "demo.search_example",
+  "platform": "demo",
+  "description": "Demo command showing parameter defaults, API-first execution and UI fallback for a search action.",
+  "riskLevel": "low",
+  "parameters": {
+    "keyword": {
+      "type": "string",
+      "required": true,
+      "description": "Search keyword."
+    },
+    "page": {
+      "type": "number",
+      "required": false,
+      "default": 1,
+      "description": "Result page number."
+    }
+  },
+  "execution": {
+    "prefer": ["api", "ui"],
+    "api": {
+      "method": "GET",
+      "url": "https://example.com/api/search?q={{keyword}}&page={{page}}",
+      "headers": {
+        "accept": "application/json"
+      },
+      "successWhen": ["HTTP 200", "response contains result list"]
+    },
+    "ui": {
+      "url": "https://example.com/search",
+      "steps": [
+        { "action": "fill", "target": "search input", "value": "{{keyword}}" },
+        { "action": "click", "target": "search button" },
+        { "action": "verify", "target": "result list contains keyword" }
+      ]
+    }
+  },
+  "successCriteria": [
+    "API returns HTTP 200 or UI result list is visible.",
+    "Returned or displayed result is consistent with keyword."
+  ],
+  "failureCases": [
+    "Missing keyword.",
+    "Platform unavailable.",
+    "Authentication expired."
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "platform.action_name",
+  "platform": "platform",
+  "description": "What business result this command achieves.",
+  "riskLevel": "low",
+  "parameters": {
+    "field": {
+      "type": "string",
+      "required": true,
+      "description": "User-facing business parameter."
+    }
+  },
+  "execution": {
+    "prefer": ["api", "ui"],
+    "api": {
+      "method": "POST",
+      "url": "https://platform.example/api/action",
+      "headers": {},
+      "body": {}
+    },
+    "ui": {
+      "url": "https://platform.example/page",
+      "steps": []
+    }
+  },
+  "successCriteria": ["Business result is verified."],
+  "failureCases": []
+}

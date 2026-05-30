@@ -1,0 +1,11 @@
+{
+  "name": "platform",
+  "baseUrl": "https://platform.example",
+  "auth": {
+    "mode": "manual_login_or_test_account",
+    "notes": "Do not store passwords or raw tokens here."
+  },
+  "routes": {},
+  "selectors": {},
+  "apiNotes": []
+}

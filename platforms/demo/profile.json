@@ -1,0 +1,10 @@
+{
+  "name": "demo",
+  "baseUrl": "https://example.com",
+  "auth": {
+    "mode": "none",
+    "notes": "Demo platform does not require authentication. Real platforms should document login method without storing secrets."
+  },
+  "selectors": {},
+  "apiNotes": []
+}
