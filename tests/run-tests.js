@@ -104,6 +104,16 @@ assert.ok(listedBuiltin);
 assert.equal(listedBuiltin.package.type, 'builtin');
 assert.equal(listedBuiltin.package.name, JSON.parse(fs.readFileSync('package.json', 'utf8')).name);
 
+const exampleExternalDir = path.join(process.cwd(), 'examples', 'external-commands');
+const externalListJson = JSON.parse(execFileSync('node', ['src/cli.js', 'list', '--json', '--commands-dir', exampleExternalDir], { encoding: 'utf8' }));
+assert.ok(externalListJson.commands.some((item) => item.name === 'crm.search_customer' && item.source === 'external'));
+const externalVerifyJson = JSON.parse(execFileSync('node', ['src/cli.js', 'verify', '--commands-dir', exampleExternalDir, '--command', 'crm.search_customer'], { encoding: 'utf8' }));
+assert.equal(externalVerifyJson.ok, true, externalVerifyJson.errors.join('\n'));
+const externalDryJson = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--commands-dir', exampleExternalDir, '--command', 'order.refund_preview', '--dry-run', 'orderId=ORD-10001', 'reason=customer_request'], { encoding: 'utf8' }));
+assert.equal(externalDryJson.status, 'dry_run');
+assert.equal(externalDryJson.command, 'order.refund_preview');
+assert.equal(externalDryJson.plan.kind, 'workflow');
+
 const mcpInput = [
   JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
   JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),

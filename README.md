@@ -73,19 +73,38 @@ my-business-commands/
 └── order.refund_preview.json
 ```
 
-使用方式：
+本仓库已经提供一套可复制的外部 command 示例：
+
+```text
+examples/external-commands/
+├── README.md
+├── crm.search_customer.json      # API-first + UI fallback
+└── order.refund_preview.json     # workflow command，串联多个步骤
+```
+
+你可以先直接运行示例：
 
 ```bash
-PLATFORM_COMMANDS_DIR=/path/to/my-business-commands node src/cli.js list --json
-PLATFORM_COMMANDS_DIR=/path/to/my-business-commands node src/cli.js verify --command crm.search_customer
-PLATFORM_COMMANDS_DIR=/path/to/my-business-commands node src/cli.js execute --command crm.search_customer --dry-run keyword=alice
+PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js list --json
+PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js verify --command crm.search_customer
+PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js execute --command crm.search_customer --dry-run keyword=alice limit=5
 ```
 
 CLI 也支持显式参数：
 
 ```bash
-node src/cli.js execute --commands-dir /path/to/my-business-commands --command crm.search_customer --dry-run keyword=alice
+node src/cli.js verify --commands-dir examples/external-commands --command order.refund_preview
+node src/cli.js execute --commands-dir examples/external-commands --command order.refund_preview --dry-run orderId=ORD-10001 reason=customer_request
 ```
+
+复制到自己的业务项目时，通常只需要改这些字段：
+
+1. `name`：改成 `<你的平台>.<你的动作>`，例如 `crm.search_customer`。
+2. `platform`：平台名，例如 `crm`、`order`、`github`。
+3. `parameters`：用户执行 command 时要传入的业务参数。
+4. `execution.api` / `execution.ui` / `execution.workflow`：真实 API、页面路径和步骤。
+5. `successCriteria`：业务成功标准，不能只写“HTTP 200”或“点击成功”。
+6. `failureCases`：登录失效、权限不足、平台变更等失败场景。
 
 加载规则：
 

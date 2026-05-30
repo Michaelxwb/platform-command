@@ -1,0 +1,90 @@
+{
+  "name": "order.refund_preview",
+  "platform": "order",
+  "description": "外部 workflow command 示例：读取订单信息并生成退款预览；只做预览，不真正退款。",
+  "riskLevel": "medium",
+  "sessionRef": "business-browser-profile",
+  "parameters": {
+    "orderId": {
+      "type": "string",
+      "required": true,
+      "description": "订单编号。"
+    },
+    "reason": {
+      "type": "string",
+      "required": false,
+      "default": "customer_request",
+      "description": "退款原因。"
+    }
+  },
+  "execution": {
+    "prefer": ["workflow", "api"],
+    "workflow": {
+      "version": "2.0",
+      "steps": [
+        {
+          "id": "get_order",
+          "type": "api",
+          "description": "读取订单详情。",
+          "request": {
+            "method": "GET",
+            "url": "https://order.example.com/api/orders/{{params.orderId}}",
+            "headers": {
+              "accept": "application/json"
+            },
+            "successWhen": ["status < 400"]
+          },
+          "extract": {
+            "orderStatus": "$.status",
+            "paidAmount": "$.paidAmount"
+          }
+        },
+        {
+          "id": "refund_preview",
+          "type": "api",
+          "description": "根据订单与原因生成退款预览，不执行真实退款。",
+          "dependsOn": ["get_order"],
+          "request": {
+            "method": "POST",
+            "url": "https://order.example.com/api/refunds/preview",
+            "headers": {
+              "content-type": "application/json"
+            },
+            "body": {
+              "orderId": "{{params.orderId}}",
+              "reason": "{{params.reason}}",
+              "paidAmount": "{{steps.get_order.paidAmount}}"
+            },
+            "successWhen": ["status < 400"]
+          },
+          "extract": {
+            "previewId": "$.previewId",
+            "refundableAmount": "$.refundableAmount"
+          }
+        },
+        {
+          "id": "verify_in_console",
+          "type": "ui",
+          "description": "打开后台订单页，人工或 Agent 确认退款预览信息可见。",
+          "dependsOn": ["refund_preview"],
+          "ui": {
+            "actions": [
+              { "action": "goto", "url": "https://order.example.com/admin/orders/{{params.orderId}}" },
+              { "action": "assert", "target": "body", "contains": "{{steps.refund_preview.previewId}}" }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "successCriteria": [
+    "订单详情读取成功。",
+    "退款预览生成成功。",
+    "没有执行真实退款动作。"
+  ],
+  "failureCases": [
+    "订单不存在或不可退款。",
+    "订单系统登录态失效。",
+    "退款预览接口变更。"
+  ]
+}

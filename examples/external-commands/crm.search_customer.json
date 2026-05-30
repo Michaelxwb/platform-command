@@ -1,0 +1,51 @@
+{
+  "name": "crm.search_customer",
+  "platform": "crm",
+  "description": "外部 command 示例：按关键词搜索 CRM 客户，优先走 API，必要时描述 UI 兜底步骤。",
+  "riskLevel": "low",
+  "parameters": {
+    "keyword": {
+      "type": "string",
+      "required": true,
+      "description": "客户名称、邮箱、手机号或客户编号。"
+    },
+    "limit": {
+      "type": "number",
+      "required": false,
+      "default": 10,
+      "description": "最多返回的客户数量。"
+    }
+  },
+  "execution": {
+    "prefer": ["api", "ui"],
+    "api": {
+      "method": "GET",
+      "url": "https://crm.example.com/api/customers/search?q={{keyword}}&limit={{limit}}",
+      "headers": {
+        "accept": "application/json"
+      },
+      "successWhen": [
+        "HTTP status < 400",
+        "response contains customers array"
+      ]
+    },
+    "ui": {
+      "url": "https://crm.example.com/customers",
+      "steps": [
+        { "action": "goto", "target": "https://crm.example.com/customers" },
+        { "action": "fill", "target": "customer search input", "value": "{{keyword}}" },
+        { "action": "click", "target": "search button" },
+        { "action": "verify", "target": "customer result list is visible" }
+      ]
+    }
+  },
+  "successCriteria": [
+    "搜索请求成功。",
+    "返回或展示的客户列表与 keyword 相关。"
+  ],
+  "failureCases": [
+    "CRM 登录态失效。",
+    "keyword 为空或没有匹配客户。",
+    "CRM API 或页面结构变化。"
+  ]
+}

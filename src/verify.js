@@ -7,8 +7,8 @@ const STEP_TYPES = new Set(['api', 'ui', 'manual']);
 const PARAM_TYPES = new Set(['string', 'number', 'boolean', 'array', 'object']);
 const STEP_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
-export function verifyCommand(commandName) {
-  const { file, command } = loadCommand(commandName);
+export function verifyCommand(commandName, options = {}) {
+  const { file, command } = loadCommand(commandName, { commandsDir: options.commandsDir });
   const errors = [];
   for (const key of REQUIRED_TOP_LEVEL) {
     if (!(key in command)) errors.push(`Missing required top-level field: ${key}`);

@@ -12,10 +12,10 @@ function help() {
 
 Usage:
   node src/cli.js --help
-  node src/cli.js list [--json]
+  node src/cli.js list [--json] [--commands-dir <dir>]
   node src/cli.js mcp
-  node src/cli.js verify --command <name>
-  node src/cli.js execute --command <name> [--dry-run] key=value ...
+  node src/cli.js verify --command <name> [--commands-dir <dir>]
+  node src/cli.js execute --command <name> [--commands-dir <dir>] [--dry-run] key=value ...
   node src/cli.js ask "自然语言指令" [--json] [--execute-real --confirm]
   node src/cli.js execute --command <name> --execute-real --confirm key=value ...  # experimental; currently blocked
   node src/cli.js learn --platform <name> --action <name> --url <url> [--observe-seconds 8] [--headed]
@@ -52,7 +52,7 @@ async function main() {
   const args = parseArgs(argv.slice(1));
   if (!cmd || cmd === '--help' || cmd === 'help') return help();
   if (cmd === 'list') {
-    const commands = listCommands({ detailed: !!args.json });
+    const commands = listCommands({ detailed: !!args.json, commandsDir: args.commandsDir });
     printJson({ commands });
     return;
   }
@@ -62,7 +62,7 @@ async function main() {
   }
   if (cmd === 'verify') {
     if (!args.command) throw new Error('verify requires --command');
-    const result = verifyCommand(args.command);
+    const result = verifyCommand(args.command, { commandsDir: args.commandsDir });
     printJson({ ok: result.ok, file: result.file, errors: result.errors });
     if (!result.ok) process.exitCode = 1;
     return;
@@ -82,7 +82,7 @@ async function main() {
     const params = parseKeyValues(args._);
     if (args.dryRun && args.executeReal) throw new Error('--dry-run and --execute-real cannot be used together');
     if (args.executeReal && !args.confirm) throw new Error('--execute-real requires --confirm');
-    const result = await executeCommand(args.command, params, { dryRun: !args.executeReal, confirm: !!args.confirm });
+    const result = await executeCommand(args.command, params, { dryRun: !args.executeReal, confirm: !!args.confirm, commandsDir: args.commandsDir });
     printJson(result);
     return;
   }

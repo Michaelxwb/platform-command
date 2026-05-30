@@ -4,7 +4,7 @@ import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
 
 export async function executeCommand(commandName, providedParams = {}, options = {}) {
-  const { file, command } = loadCommand(commandName);
+  const { file, command } = loadCommand(commandName, { commandsDir: options.commandsDir });
   const params = mergeParams(command, providedParams);
   const dryRun = options.dryRun !== false;
   const plan = buildExecutionPlan(command, params, { failOnUnresolvedTemplates: options.dryRun === false });
