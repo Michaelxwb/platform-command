@@ -6,6 +6,8 @@ import { listCommands, loadCommand, mergeParams } from '../src/command_store.js'
 import { buildWorkflowPlan } from '../src/workflow.js';
 import { verifyCommand } from '../src/verify.js';
 import { formatHumanReadable, parseNaturalLanguage } from '../src/nl.js';
+import { learnAction } from '../src/learn.js';
+import { handleMcpRequest } from '../src/mcp_server.js';
 
 const commandsDir = path.join(process.cwd(), 'commands');
 
@@ -97,7 +99,10 @@ try {
 }
 
 const listJson = JSON.parse(execFileSync('node', ['src/cli.js', 'list', '--json'], { encoding: 'utf8' }));
-assert.ok(listJson.commands.some((item) => item.name === 'demo.search_example' && item.source === 'builtin'));
+const listedBuiltin = listJson.commands.find((item) => item.name === 'demo.search_example' && item.source === 'builtin');
+assert.ok(listedBuiltin);
+assert.equal(listedBuiltin.package.type, 'builtin');
+assert.equal(listedBuiltin.package.name, 'platform-command');
 
 const mcpInput = [
   JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
@@ -162,5 +167,24 @@ try {
 } finally {
   if (fs.existsSync(invalidFile)) fs.unlinkSync(invalidFile);
 }
+
+
+const initResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 10, method: 'initialize', params: {} });
+assert.deepEqual(initResponse.result.capabilities, { tools: {}, resources: {}, prompts: {} });
+const resourcesResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 11, method: 'resources/list' });
+assert.ok(resourcesResponse.result.resources.some((resource) => resource.uri === 'platform-command://commands'));
+const commandsResource = await handleMcpRequest({ jsonrpc: '2.0', id: 12, method: 'resources/read', params: { uri: 'platform-command://commands' } });
+assert.match(commandsResource.result.contents[0].text, /demo\.search_example/);
+const promptsResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 13, method: 'prompts/list' });
+assert.ok(promptsResponse.result.prompts.some((prompt) => prompt.name === 'platform_command_build_command'));
+const promptResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 14, method: 'prompts/get', params: { name: 'platform_command_execute_safely', arguments: { command: 'demo.search_example' } } });
+assert.match(promptResponse.result.messages[0].content.text, /verify/);
+
+const manualLearn = await learnAction({ url: 'https://example.com', platform: 'demo', action: 'manual_test', provider: 'manual' });
+assert.equal(manualLearn.status, 'learned_fallback');
+assert.equal(manualLearn.provider, 'manual');
+assert.equal(manualLearn.report.provider, 'manual');
+assert.ok(manualLearn.report.fallbackInstructions.length > 0);
+fs.rmSync(manualLearn.runDir, { recursive: true, force: true });
 
 console.log('All tests passed.');

@@ -12,7 +12,7 @@ export const MCP_TOOLS = [
     description: 'List available platform-command command definitions. External commands override builtin commands.',
     inputSchema: {
       type: 'object',
-      properties: { detailed: { type: 'boolean', description: 'Return file/source metadata.' } }
+      properties: { detailed: { type: 'boolean', description: 'Return file/source/package metadata.' } }
     }
   },
   {
@@ -49,6 +49,37 @@ export const MCP_TOOLS = [
   }
 ];
 
+export const MCP_RESOURCES = [
+  {
+    uri: 'platform-command://commands',
+    name: 'platform-command command catalog',
+    description: 'Catalog of available commands with source and package metadata.',
+    mimeType: 'application/json'
+  },
+  {
+    uri: 'platform-command://distribution',
+    name: 'platform-command distribution guide',
+    description: 'How to install, extend, and distribute platform-command command packages.',
+    mimeType: 'text/markdown'
+  }
+];
+
+export const MCP_PROMPTS = [
+  {
+    name: 'platform_command_build_command',
+    description: 'Guide an agent to create a business-specific platform-command JSON command safely.',
+    arguments: [
+      { name: 'platform', description: 'Target platform or product name.', required: true },
+      { name: 'action', description: 'Business action to automate.', required: true }
+    ]
+  },
+  {
+    name: 'platform_command_execute_safely',
+    description: 'Guide an agent to verify and dry-run before executing a platform command.',
+    arguments: [{ name: 'command', description: 'Command name such as github.list_issues.', required: true }]
+  }
+];
+
 export async function handleMcpRequest(message) {
   if (!message || typeof message !== 'object') throw new Error('Invalid JSON-RPC message');
   const { id, method, params = {} } = message;
@@ -58,19 +89,18 @@ export async function handleMcpRequest(message) {
       id,
       result: {
         protocolVersion: params.protocolVersion || '2024-11-05',
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, resources: {}, prompts: {} },
         serverInfo: SERVER_INFO
       }
     };
   }
   if (method === 'notifications/initialized') return null;
-  if (method === 'tools/list') {
-    return { jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } };
-  }
-  if (method === 'tools/call') {
-    const result = await callTool(params.name, params.arguments || {});
-    return { jsonrpc: '2.0', id, result };
-  }
+  if (method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } };
+  if (method === 'tools/call') return { jsonrpc: '2.0', id, result: await callTool(params.name, params.arguments || {}) };
+  if (method === 'resources/list') return { jsonrpc: '2.0', id, result: { resources: MCP_RESOURCES } };
+  if (method === 'resources/read') return { jsonrpc: '2.0', id, result: readResource(params.uri) };
+  if (method === 'prompts/list') return { jsonrpc: '2.0', id, result: { prompts: MCP_PROMPTS } };
+  if (method === 'prompts/get') return { jsonrpc: '2.0', id, result: getPrompt(params.name, params.arguments || {}) };
   return { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } };
 }
 
@@ -86,10 +116,34 @@ async function callTool(name, args) {
     const result = await executeCommand(args.command, args.params || {}, { dryRun, confirm: !!args.confirm });
     return toolResult(result);
   }
-  return {
-    isError: true,
-    content: [{ type: 'text', text: `Unknown tool: ${name}` }]
-  };
+  return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
+}
+
+function readResource(uri) {
+  if (uri === 'platform-command://commands') {
+    return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ commands: listCommands({ detailed: true }) }, null, 2) }] };
+  }
+  if (uri === 'platform-command://distribution') {
+    return { contents: [{ uri, mimeType: 'text/markdown', text: distributionGuide() }] };
+  }
+  return { contents: [{ uri, mimeType: 'text/plain', text: `Unknown resource: ${uri}` }] };
+}
+
+function getPrompt(name, args) {
+  if (name === 'platform_command_build_command') {
+    const platform = args.platform || '<platform>';
+    const action = args.action || '<action>';
+    return { messages: [{ role: 'user', content: { type: 'text', text: `Create a platform-command JSON command for ${platform}.${action}. First define parameters and riskLevel, then prefer API workflow steps, add UI/manual fallback, run platform-command verify, and dry-run before real execution.` } }] };
+  }
+  if (name === 'platform_command_execute_safely') {
+    const command = args.command || '<command>';
+    return { messages: [{ role: 'user', content: { type: 'text', text: `Use platform-command safely for ${command}: describe it, verify it, run execute with dryRun=true, inspect the plan and riskLevel, then only run with confirm=true if policy and user approval allow it.` } }] };
+  }
+  return { messages: [{ role: 'user', content: { type: 'text', text: `Unknown prompt: ${name}` } }] };
+}
+
+function distributionGuide() {
+  return `# platform-command distribution\n\n- Install the framework with npm or from git.\n- Builtin public commands live in commands/*.json.\n- Business teams add their own JSON commands in a local commands/ directory or set PLATFORM_COMMANDS_DIR.\n- External commands override builtin commands with the same name.\n- MCP clients can discover tools, resources, and prompts; CLI remains the fallback entrypoint.\n`;
 }
 
 function toolResult(data) {

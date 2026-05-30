@@ -165,7 +165,55 @@ node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc li
 
 默认推荐先使用 `--dry-run`，确认参数、执行路径、步骤依赖、会话引用和风险等级后，再考虑真实执行。V3 第一阶段仍以结构化 dry-run 和协议接入为主，不做真实 UI 变更执行。
 
-## 当前 V3 第一阶段能力
+## 安装与分发
+
+### 作为 MCP server 使用
+
+```bash
+npm install
+node src/cli.js mcp
+```
+
+在支持 MCP 的 Agent 中，把 stdio server 配置为执行 `node /path/to/platform-command/src/cli.js mcp`。Agent 连接后可以发现：
+
+- tools：list / describe / verify / execute；
+- resources：`platform-command://commands`、`platform-command://distribution`；
+- prompts：生成业务 command、安全执行 command。
+
+### 作为通用框架扩展业务 command
+
+公共 command 放在项目 `commands/*.json`。业务方可以任选一种方式扩展：
+
+```bash
+# 方式 1：在自己的目录维护 command 包
+export PLATFORM_COMMANDS_DIR=/path/to/my-business-commands
+node src/cli.js list --json
+
+# 方式 2：CLI 临时指定
+node src/cli.js list --json --commands-dir /path/to/my-business-commands
+```
+
+外部 command 与内置 command 同名时，外部 command 优先。`list --json` 会展示每个 command 的 source 与 package 信息，便于分发和排障。
+
+### learn 的浏览器依赖策略
+
+`playwright` 是 optional dependency。没有安装 Playwright 或浏览器时，learn 不再直接失败，而是生成 fallback 报告：
+
+```bash
+node src/cli.js learn --platform demo --action inspect --url https://example.com --provider manual
+node src/cli.js learn --platform demo --action inspect --url https://example.com --provider http
+```
+
+如果需要真实浏览器学习能力，再安装：
+
+```bash
+npm install playwright
+npx playwright install chromium
+```
+
+## 当前 V3 能力
+
+### 第一阶段：MCP-first 基座
 
 - MCP stdio server 基座；
 - CLI `mcp` 子命令；
@@ -175,6 +223,15 @@ node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc li
 - execute dry-run；
 - learn Playwright 可选化；
 - MCP/CLI/外部 commands 自动化测试。
+
+### 第二阶段：通用分发框架增强
+
+- `list --json` 返回 command 的 source 与 package metadata，便于区分 builtin / external command package；
+- MCP server 支持 tools、resources、prompts 三类能力；
+- MCP resources 暴露 command catalog 与 distribution guide；
+- MCP prompts 提供“生成业务 command”和“安全执行 command”的 Agent 指引；
+- learn 支持 provider/fallback provider：Playwright 可用时浏览器学习，不可用时自动生成 HTTP 或 manual fallback 报告；
+- 测试覆盖 command package metadata、MCP resources/prompts、learn fallback。
 
 ## 安全原则
 

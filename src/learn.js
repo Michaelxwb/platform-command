@@ -3,6 +3,20 @@ import { ROOT, maskHeaders, timestamp, writeJson, redactSensitive } from './util
 
 export async function learnAction(options) {
   if (!options.url) throw new Error('learn requires --url');
+  const provider = options.provider || 'auto';
+  if (provider === 'manual') return manualLearn(options, 'requested');
+  if (provider === 'http') return httpLearn(options, 'requested');
+  try {
+    return await playwrightLearn(options);
+  } catch (error) {
+    if (provider === 'playwright') throw error;
+    const fallback = options.fallbackProvider || 'http';
+    if (fallback === 'manual') return manualLearn(options, error.message);
+    return httpLearn(options, error.message);
+  }
+}
+
+async function playwrightLearn(options) {
   const platform = options.platform || 'unknown';
   const action = options.action || 'inspect';
   const observeSeconds = Number(options.observeSeconds || 8);
@@ -39,40 +53,101 @@ export async function learnAction(options) {
   await page.waitForTimeout(observeSeconds * 1000);
   const domSummary = await summarizeDom(page);
   const suggestions = buildSuggestions({ platform, action, domSummary, requests });
-  const report = {
-    platform,
-    action,
-    url: options.url,
-    capturedAt: new Date().toISOString(),
-    safety: { dryRunOnly: true, submittedActions: false, secretsRedacted: true },
+  const report = baseReport({ platform, action, url: options.url, provider: 'playwright' }, {
     domSummary,
     operationTrace,
     network: { requests, responses },
     candidateParameters: suggestions.candidateParameters,
     suggestedWorkflow: suggestions.suggestedWorkflow
-  };
+  });
   writeJson(path.join(runDir, 'learn_report.json'), report);
   await page.screenshot({ path: path.join(runDir, 'page.png'), fullPage: true }).catch(() => null);
   await browser.close();
-  return { status: 'learned', runDir, report };
+  return { status: 'learned', provider: 'playwright', runDir, report };
+}
+
+async function httpLearn(options, reason = 'fallback') {
+  const platform = options.platform || 'unknown';
+  const action = options.action || 'inspect';
+  const runDir = path.join(ROOT, 'runs', `${timestamp()}_${platform}_${action}`);
+  const requests = [];
+  const responses = [];
+  let title = '';
+  let bodyPreview = '';
+  try {
+    const response = await fetch(options.url, { method: 'GET', redirect: 'follow' });
+    const text = await response.text();
+    title = /<title[^>]*>([^<]*)<\/title>/i.exec(text)?.[1]?.trim() || '';
+    bodyPreview = text.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2000);
+    requests.push(redactSensitive({ method: 'GET', url: options.url, resourceType: 'document', headers: {} }));
+    responses.push(redactSensitive({ url: response.url, status: response.status, headers: maskHeaders(Object.fromEntries(response.headers.entries())) }));
+  } catch (error) {
+    responses.push({ url: options.url, status: null, error: error.message });
+  }
+  const domSummary = { title, url: options.url, inputs: [], buttons: [], links: [], forms: [], bodyPreview };
+  const suggestions = buildSuggestions({ platform, action, domSummary, requests });
+  const report = baseReport({ platform, action, url: options.url, provider: 'http', fallbackReason: reason }, {
+    domSummary,
+    operationTrace: [],
+    network: { requests, responses },
+    candidateParameters: suggestions.candidateParameters,
+    suggestedWorkflow: suggestions.suggestedWorkflow,
+    fallbackInstructions: [
+      'HTTP fallback cannot observe real browser interactions.',
+      'Use this report as a skeleton, then add selectors/API calls manually or rerun with Playwright/browser provider.'
+    ]
+  });
+  writeJson(path.join(runDir, 'learn_report.json'), report);
+  return { status: 'learned_fallback', provider: 'http', runDir, report };
+}
+
+function manualLearn(options, reason = 'fallback') {
+  const platform = options.platform || 'unknown';
+  const action = options.action || 'inspect';
+  const runDir = path.join(ROOT, 'runs', `${timestamp()}_${platform}_${action}`);
+  const domSummary = { title: '', url: options.url, inputs: [], buttons: [], links: [], forms: [] };
+  const report = baseReport({ platform, action, url: options.url, provider: 'manual', fallbackReason: reason }, {
+    domSummary,
+    operationTrace: [],
+    network: { requests: [], responses: [] },
+    candidateParameters: [],
+    suggestedWorkflow: {
+      name: `${platform}.${action}`,
+      sessionRef: 'default-browser-profile',
+      strategy: 'sequential',
+      steps: [
+        { id: 'open_page', type: 'manual', manual: `Open ${options.url} and record the business steps for ${platform}.${action}.` },
+        { id: 'convert_steps', type: 'manual', manual: 'Convert observed fields/buttons/API calls into JSON workflow steps, then run verify and dry-run.' }
+      ]
+    },
+    fallbackInstructions: [
+      'Manual fallback was used because no browser automation provider was available or requested.',
+      'Ask the host agent/user to observe the page and fill selectors/API requests into the command JSON.'
+    ]
+  });
+  writeJson(path.join(runDir, 'learn_report.json'), report);
+  return { status: 'learned_fallback', provider: 'manual', runDir, report };
+}
+
+function baseReport(meta, data) {
+  return {
+    platform: meta.platform,
+    action: meta.action,
+    url: meta.url,
+    capturedAt: new Date().toISOString(),
+    provider: meta.provider,
+    fallbackReason: meta.fallbackReason || null,
+    safety: { dryRunOnly: true, submittedActions: false, secretsRedacted: true },
+    ...data
+  };
 }
 
 async function installTraceHooks(page) {
   await page.addInitScript(() => {
-    window.__platformCommandHookInstalled = true;
-  });
-  await page.evaluate(() => {
-    if (window.__platformCommandRuntimeHookInstalled) return;
-    window.__platformCommandRuntimeHookInstalled = true;
-    const send = (payload) => window.__platformCommandRecord?.(payload);
-    document.addEventListener('click', (event) => {
-      const el = event.target;
-      send({ type: 'click', text: el?.innerText || el?.value || '', selectorHint: el?.id ? `#${el.id}` : el?.getAttribute?.('data-testid') || el?.tagName });
-    }, true);
-    document.addEventListener('input', (event) => {
-      const el = event.target;
-      send({ type: 'input', selectorHint: el?.id ? `#${el.id}` : el?.name || el?.tagName, value: '[REDACTED]' });
-    }, true);
+    const record = (event) => window.__platformCommandRecord?.(event).catch(() => null);
+    document.addEventListener('click', (event) => record({ type: 'click', text: event.target?.innerText || event.target?.value || '', tag: event.target?.tagName }), true);
+    document.addEventListener('input', (event) => record({ type: 'input', name: event.target?.name || event.target?.id || '', tag: event.target?.tagName }), true);
+    document.addEventListener('submit', (event) => record({ type: 'submit', action: event.target?.action || '', method: event.target?.method || '' }), true);
   });
 }
 
@@ -81,10 +156,10 @@ async function summarizeDom(page) {
     const text = (el) => (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().slice(0, 120);
     const selector = (el) => ({
       id: el.id || null,
-      name: el.getAttribute('name'),
-      testId: el.getAttribute('data-testid'),
-      role: el.getAttribute('role'),
-      label: el.getAttribute('aria-label')
+      name: el.getAttribute('name') || null,
+      role: el.getAttribute('role') || null,
+      text: text(el) || null,
+      ariaLabel: el.getAttribute('aria-label')
     });
     return {
       title: document.title,
@@ -98,7 +173,7 @@ async function summarizeDom(page) {
 }
 
 function buildSuggestions({ platform, action, domSummary, requests }) {
-  const candidateParameters = domSummary.inputs.map((input, index) => ({
+  const candidateParameters = (domSummary.inputs || []).map((input, index) => ({
     name: input.selector.name || input.selector.id?.replace(/[^a-zA-Z0-9_]/g, '_') || `field${index + 1}`,
     source: 'dom.input',
     type: input.type === 'number' ? 'number' : 'string',
@@ -119,7 +194,6 @@ function buildSuggestions({ platform, action, domSummary, requests }) {
     }
   };
 }
-
 
 async function loadPlaywright() {
   try {

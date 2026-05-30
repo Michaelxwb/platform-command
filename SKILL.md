@@ -91,6 +91,34 @@ verify 至少应检查：
 - workflow 步骤 id 是否唯一，api step 是否有 request，ui step 是否有动作序列；
 - UI 动作是否属于支持集合。
 
+
+### 6. MCP：跨 Agent 接入
+
+V3 推荐把 platform-command 作为 MCP server 接入不同 Agent。MCP 暴露：
+
+- tools：列出、描述、验证、执行 command；
+- resources：读取 command catalog 和分发说明；
+- prompts：指导 Agent 生成业务 command 或安全执行 command。
+
+启动方式：
+
+```bash
+node src/cli.js mcp
+```
+
+支持 skill 的 Agent 仍可读取本文件作为能力说明；支持 MCP 的 Agent 优先走 MCP。
+
+### 7. learn fallback：降低浏览器依赖
+
+learn 优先使用 Playwright 做浏览器观察；如果 Playwright 或浏览器不可用，可以回退：
+
+```bash
+node src/cli.js learn --platform demo --action inspect --url https://example.com --provider http
+node src/cli.js learn --platform demo --action inspect --url https://example.com --provider manual
+```
+
+HTTP fallback 会抓取页面标题、响应元信息和文本预览；manual fallback 会生成需要宿主 Agent/用户补充的 command 骨架。这样即使某些 Agent 没有强浏览器控制能力，也能产出可继续编辑的学习报告。
+
 ## 安全规则
 
 - 禁止把密码、私钥、原始 Cookie、原始 Authorization Header 写入 command 文件。

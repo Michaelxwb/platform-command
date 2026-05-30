@@ -58,7 +58,7 @@ export function listCommands(options = {}) {
       const command = name.replace(/\.json$/, '');
       if (!found.has(command)) {
         const file = path.join(dir, name);
-        found.set(command, options.detailed ? { name: command, file, source: sourceForFile(file) } : command);
+        found.set(command, options.detailed ? commandMetadata(command, file) : command);
       }
     }
   }
@@ -68,6 +68,46 @@ export function listCommands(options = {}) {
 function sourceForFile(file) {
   const resolved = path.resolve(file);
   return resolved.startsWith(path.resolve(builtinCommandsDir()) + path.sep) ? 'builtin' : 'external';
+}
+
+export function commandMetadata(commandName, file) {
+  const resolved = path.resolve(file);
+  const source = sourceForFile(resolved);
+  const packageRoot = findCommandPackageRoot(resolved);
+  const pkg = readPackageMetadata(packageRoot);
+  return {
+    name: commandName,
+    file: resolved,
+    source,
+    package: {
+      name: pkg.name || (source === 'builtin' ? 'platform-command-builtin' : path.basename(packageRoot)),
+      version: pkg.version || null,
+      root: packageRoot,
+      type: source === 'builtin' ? 'builtin' : 'external',
+      description: pkg.description || null
+    }
+  };
+}
+
+function findCommandPackageRoot(file) {
+  let dir = path.dirname(path.resolve(file));
+  const root = path.parse(dir).root;
+  while (dir && dir !== root) {
+    if (fs.existsSync(path.join(dir, 'package.json')) || fs.existsSync(path.join(dir, 'commands'))) return dir;
+    dir = path.dirname(dir);
+  }
+  return path.dirname(path.resolve(file));
+}
+
+function readPackageMetadata(packageRoot) {
+  const packageFile = path.join(packageRoot, 'package.json');
+  if (!fs.existsSync(packageFile)) return {};
+  try {
+    const pkg = readJson(packageFile);
+    return { name: pkg.name, version: pkg.version, description: pkg.description };
+  } catch {
+    return {};
+  }
 }
 
 export function mergeParams(command, provided = {}) {
