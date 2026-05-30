@@ -16,6 +16,7 @@ export function buildWorkflowPlan(command, params, options = {}) {
   if (options.failOnUnresolvedTemplates && warnings.some((item) => item.code === 'UNRESOLVED_TEMPLATE')) {
     throw new Error(`Unresolved template reference: ${warnings.find((item) => item.code === 'UNRESOLVED_TEMPLATE').expression}`);
   }
+  const auxContext = buildAuxiliaryContext(command, context);
   return {
     kind: recipe.kind,
     strategy: recipe.strategy || 'sequential',
@@ -32,10 +33,28 @@ export function buildWorkflowPlan(command, params, options = {}) {
     },
     warnings,
     steps,
+    dataSource: command.dataSource ? redactSensitive(renderValue(command.dataSource, auxContext)) : undefined,
+    output: command.output ? redactSensitive(renderValue(command.output, auxContext)) : undefined,
     checks: renderValue(recipe.checks || [], context),
     successCriteria: renderValue(recipe.successCriteria || [], context),
     failureCases: renderValue(recipe.failureCases || [], context)
   };
+}
+
+function buildAuxiliaryContext(command, context) {
+  const aux = {
+    ...context,
+    steps: { ...(context.steps || {}) },
+    cursor: { next: 0 }
+  };
+  for (const step of command.dataSource?.steps || []) {
+    if (!step.id || !step.extract) continue;
+    aux.steps[step.id] = {};
+    for (const [name, spec] of Object.entries(step.extract || {})) {
+      aux.steps[step.id][name] = spec?.example !== undefined ? spec.example : `{{runtime.${step.id}.${name}}}`;
+    }
+  }
+  return aux;
 }
 
 export function normalizeRecipe(command) {

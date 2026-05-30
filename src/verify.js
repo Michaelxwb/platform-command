@@ -1,5 +1,6 @@
 import { loadCommand } from './command_store.js';
 import { UI_ACTIONS, findTemplateExpressions, normalizeRecipe } from './workflow.js';
+import { normalizeCapability } from './exporters.js';
 
 const REQUIRED_TOP_LEVEL = ['name', 'platform', 'description', 'riskLevel', 'parameters'];
 const RISK_LEVELS = new Set(['low', 'medium', 'high']);
@@ -19,6 +20,8 @@ export function verifyCommand(commandName, options = {}) {
   }
   validateParameters(command, errors);
   validateNaturalLanguage(command, errors);
+  validateDataSource(command, errors);
+  validateOutput(command, errors);
   const recipe = normalizeRecipe(command);
   if (recipe) {
     validateWorkflow(recipe, command, errors, recipe.kind === 'recipe' ? 'steps' : 'execution.workflow.steps');
@@ -30,6 +33,45 @@ export function verifyCommand(commandName, options = {}) {
     if (command.execution?.workflow) validateWorkflow(command.execution.workflow, command, errors);
   }
   return { ok: errors.length === 0, file, command, errors };
+}
+
+function validateDataSource(command, errors) {
+  if (command.dataSource === undefined) return;
+  const dataSource = command.dataSource;
+  if (!dataSource || typeof dataSource !== 'object' || Array.isArray(dataSource)) {
+    errors.push('dataSource must be an object');
+    return;
+  }
+  if (!dataSource.type) errors.push('dataSource.type is required');
+  if (dataSource.type === 'builtin' && !dataSource.handler) errors.push('dataSource.handler is required when dataSource.type is builtin');
+  if (dataSource.type === 'inline' && dataSource.rows !== undefined && !Array.isArray(dataSource.rows)) errors.push('dataSource.rows must be an array when dataSource.type is inline');
+  if (dataSource.type === 'http_json' && (!Array.isArray(dataSource.steps) || dataSource.steps.length === 0)) errors.push('dataSource.steps must be a non-empty array when dataSource.type is http_json');
+  validateKnownParameterTemplates(dataSource, command, 'dataSource', errors);
+}
+
+function validateOutput(command, errors) {
+  if (command.output === undefined) return;
+  const output = command.output;
+  if (!output || typeof output !== 'object' || Array.isArray(output)) {
+    errors.push('output must be an object');
+    return;
+  }
+  if (!output.capability) errors.push('output.capability is required');
+  if (output.capability && typeof output.capability === 'string' && !output.capability.includes('{{') && !normalizeCapability(output.capability)) {
+    errors.push(`output.capability is unsupported: ${output.capability}`);
+  }
+  if (!output.path) errors.push('output.path is required');
+  if (output.columns !== undefined) {
+    if (!Array.isArray(output.columns) || output.columns.length === 0) errors.push('output.columns must be a non-empty array');
+    else output.columns.forEach((column, index) => {
+      if (!column || typeof column !== 'object' || Array.isArray(column)) errors.push(`output.columns[${index}] must be an object`);
+      else {
+        if (!column.key) errors.push(`output.columns[${index}].key is required`);
+        if (!column.title) errors.push(`output.columns[${index}].title is required`);
+      }
+    });
+  }
+  validateKnownParameterTemplates(output, command, 'output', errors);
 }
 
 function validateParameters(command, errors) {
@@ -47,6 +89,7 @@ function validateParameters(command, errors) {
     if (spec.default !== undefined && spec.required === true) errors.push(`parameters.${name} cannot be both required and have default`);
     if (spec.default !== undefined && spec.type && !matchesType(spec.default, spec.type)) errors.push(`parameters.${name}.default must match type ${spec.type}`);
     if (spec.enum && (!Array.isArray(spec.enum) || spec.enum.length === 0)) errors.push(`parameters.${name}.enum must be a non-empty array`);
+    if (spec.enum && (spec.type === 'array' || spec.type === 'object')) errors.push(`parameters.${name}.enum is only supported for scalar types`);
   }
 }
 
@@ -212,8 +255,12 @@ function validateDependencies(steps, ids, errors, stepsPath = 'execution.workflo
 }
 
 function validateKnownTemplates(step, command, prefix, errors) {
+  validateKnownParameterTemplates(step, command, prefix, errors);
+}
+
+function validateKnownParameterTemplates(value, command, prefix, errors) {
   const paramNames = new Set(Object.keys(command.parameters || {}));
-  for (const expr of findTemplateExpressions(step)) {
+  for (const expr of findTemplateExpressions(value)) {
     if (/^[a-zA-Z0-9_]+$/.test(expr) && !paramNames.has(expr)) errors.push(`${prefix} references unknown parameter template: ${expr}`);
     if (expr.startsWith('params.') && !paramNames.has(expr.slice('params.'.length))) errors.push(`${prefix} references unknown parameter template: ${expr}`);
   }

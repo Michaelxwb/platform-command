@@ -8,6 +8,8 @@ import { verifyCommand } from '../src/verify.js';
 import { formatHumanReadable, parseNaturalLanguage } from '../src/nl.js';
 import { learnAction } from '../src/learn.js';
 import { handleMcpRequest } from '../src/mcp_server.js';
+import { exportRows } from '../src/exporters.js';
+import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
 const commandsDir = path.join(process.cwd(), 'commands');
 
@@ -32,6 +34,10 @@ assert.deepEqual(nlInspect.params, { owner: 'Michaelxwb', repo: 'platform-comman
 const nlBilibili = parseNaturalLanguage('给 bilibili 视频 https://www.bilibili.com/video/BV1YNGn6CEcH 评论：测试评论，并自动发布');
 assert.equal(nlBilibili.command, 'bilibili.post_comment');
 assert.deepEqual(nlBilibili.params, { videoUrl: 'https://www.bilibili.com/video/BV1YNGn6CEcH', commentText: '测试评论', autoPublish: true });
+
+const nlBilibiliExport = parseNaturalLanguage('获取 bilibili 视频 https://www.bilibili.com/video/BV1rPDkB7ESC/ 前50评论数据，输出到 runs/comments.xlsx');
+assert.equal(nlBilibiliExport.command, 'bilibili.export_comments');
+assert.deepEqual(nlBilibiliExport.params, { bvid: 'BV1rPDkB7ESC', limit: 50, outputPath: 'runs/comments.xlsx', mode: 3 });
 
 const readable = formatHumanReadable({
   parsed: nlIssues,
@@ -107,6 +113,15 @@ const listedBuiltin = listJson.commands.find((item) => item.name === 'demo.searc
 assert.ok(listedBuiltin);
 assert.equal(listedBuiltin.package.type, 'builtin');
 assert.equal(listedBuiltin.package.name, JSON.parse(fs.readFileSync('package.json', 'utf8')).name);
+const listedBilibiliExport = listJson.commands.find((item) => item.name === 'bilibili.export_comments');
+assert.ok(listedBilibiliExport);
+assert.match(listedBilibiliExport.file, /commands\/bilibili\/cmd\/export_comments\.json$/);
+const listedBilibiliPost = listJson.commands.find((item) => item.name === 'bilibili.post_comment');
+assert.ok(listedBilibiliPost);
+assert.match(listedBilibiliPost.file, /commands\/bilibili\/cmd\/post_comment\.json$/);
+const listedGithubIssues = listJson.commands.find((item) => item.name === 'github.list_issues');
+assert.ok(listedGithubIssues);
+assert.match(listedGithubIssues.file, /commands\/github\/cmd\/list_issues\.json$/);
 
 const exampleExternalDir = path.join(process.cwd(), 'examples', 'external-commands');
 const externalListJson = JSON.parse(execFileSync('node', ['src/cli.js', 'list', '--json', '--commands-dir', exampleExternalDir], { encoding: 'utf8' }));
@@ -180,6 +195,99 @@ assert.equal(mcpExecutePayload.params.keyword, 'abc');
 
 const workflowVerify = verifyCommand('demo.workflow_example');
 assert.equal(workflowVerify.ok, true, workflowVerify.errors.join('\n'));
+
+const bilibiliExportVerify = verifyCommand('bilibili.export_comments');
+assert.equal(bilibiliExportVerify.ok, true, bilibiliExportVerify.errors.join('\n'));
+const bilibiliExportDry = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--command', 'bilibili.export_comments', '--dry-run', 'bvid=BV1rPDkB7ESC', 'limit=50', 'outputPath=runs/comments.xlsx'], { encoding: 'utf8' }));
+assert.equal(bilibiliExportDry.status, 'dry_run');
+assert.equal(bilibiliExportDry.plan.steps.at(-1).id, 'export_file');
+assert.equal(bilibiliExportDry.plan.output.capability, 'export_excel');
+assert.deepEqual(bilibiliExportDry.plan.output.columns.map((column) => column.title), ['评论人', '评论时间', '评论内容', '点赞数量']);
+assert.equal(bilibiliExportDry.plan.steps[1].request.url, 'https://api.bilibili.com/x/web-interface/view?bvid=BV1rPDkB7ESC');
+assert.equal(bilibiliExportDry.plan.steps[2].request.url, 'https://api.bilibili.com/x/v2/reply/wbi/main?type=1&oid=116366820508713&mode=3&ps=20&next=0');
+assert.equal(bilibiliExportDry.plan.dataSource.type, 'http_json');
+assert.equal(bilibiliExportDry.plan.dataSource.steps[1].request.signer.module, './code/bilibili_wbi.js');
+assert.equal(bilibiliExportDry.plan.dataSource.steps[1].collect.map[0].key, 'commenter');
+
+const signedWbi = signBilibiliWbi({ oid: 123, type: 1, ps: 20 }, {
+  imgKey: 'abcdefghijklmnopqrstuvwxyzabcdef',
+  subKey: '0123456789abcdef0123456789abcdef'
+}, 1780166795);
+assert.equal(signedWbi.wts, 1780166795);
+assert.match(signedWbi.w_rid, /^[0-9a-f]{32}$/);
+const tmpXlsx = path.join(process.cwd(), '.tmp-comments.xlsx');
+const tmpDocx = path.join(process.cwd(), '.tmp-comments.docx');
+const tmpPptx = path.join(process.cwd(), '.tmp-comments.pptx');
+try {
+  const exportRowsInput = {
+    columns: [
+      { key: 'commenter', title: '评论人' },
+      { key: 'commentTime', title: '评论时间' },
+      { key: 'content', title: '评论内容' },
+      { key: 'likes', title: '点赞数量' }
+    ],
+    rows: [{ commenter: 'alice', commentTime: '2026-05-31 02:46:35', content: 'hello', likes: 7 }],
+    title: 'comments'
+  };
+  exportRows({ ...exportRowsInput, capability: 'export_excel', outputPath: tmpXlsx });
+  exportRows({ ...exportRowsInput, capability: 'export_word', outputPath: tmpDocx });
+  exportRows({ ...exportRowsInput, capability: 'export_ppt', outputPath: tmpPptx });
+  const xlsx = fs.readFileSync(tmpXlsx);
+  const docx = fs.readFileSync(tmpDocx);
+  const pptx = fs.readFileSync(tmpPptx);
+  assert.equal(xlsx.slice(0, 4).toString('hex'), '504b0304');
+  assert.equal(docx.slice(0, 4).toString('hex'), '504b0304');
+  assert.equal(pptx.slice(0, 4).toString('hex'), '504b0304');
+  assert.ok(xlsx.includes(Buffer.from('xl/worksheets/sheet1.xml')));
+  assert.ok(docx.includes(Buffer.from('word/document.xml')));
+  assert.ok(pptx.includes(Buffer.from('ppt/slides/slide1.xml')));
+} finally {
+  if (fs.existsSync(tmpXlsx)) fs.unlinkSync(tmpXlsx);
+  if (fs.existsSync(tmpDocx)) fs.unlinkSync(tmpDocx);
+  if (fs.existsSync(tmpPptx)) fs.unlinkSync(tmpPptx);
+}
+
+const autoExportDir = path.join(process.cwd(), '.tmp-auto-export-commands');
+const autoExportFile = path.join(autoExportDir, 'demo.auto_export.json');
+const autoExportOutput = path.join(process.cwd(), '.tmp-auto-export.xlsx');
+try {
+  fs.rmSync(autoExportDir, { recursive: true, force: true });
+  fs.mkdirSync(autoExportDir, { recursive: true });
+  fs.writeFileSync(autoExportFile, JSON.stringify({
+    name: 'demo.auto_export',
+    platform: 'demo',
+    description: 'Auto export command with a generic output capability.',
+    riskLevel: 'low',
+    parameters: {
+      outputPath: { type: 'string', required: true }
+    },
+    dataSource: {
+      type: 'inline',
+      rows: [{ name: 'alice', count: 2 }]
+    },
+    output: {
+      capability: 'export_excel',
+      path: '{{params.outputPath}}',
+      columns: [
+        { key: 'name', title: 'Name' },
+        { key: 'count', title: 'Count' }
+      ]
+    },
+    steps: [
+      { id: 'export_file', type: 'manual', manual: 'Auto-dispatch output.capability.' }
+    ]
+  }, null, 2));
+  const autoExportVerify = verifyCommand('demo.auto_export', { commandsDir: autoExportDir });
+  assert.equal(autoExportVerify.ok, true, autoExportVerify.errors.join('\n'));
+  const autoExportRun = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--commands-dir', autoExportDir, '--command', 'demo.auto_export', '--execute-real', '--confirm', `outputPath=${autoExportOutput}`], { encoding: 'utf8' }));
+  assert.equal(autoExportRun.status, 'executed');
+  assert.equal(autoExportRun.capability, 'export_excel');
+  assert.equal(autoExportRun.rows, 1);
+  assert.ok(fs.existsSync(autoExportOutput));
+} finally {
+  fs.rmSync(autoExportDir, { recursive: true, force: true });
+  if (fs.existsSync(autoExportOutput)) fs.unlinkSync(autoExportOutput);
+}
 
 const workflowDry = execFileSync('node', ['src/cli.js', 'execute', '--command', 'demo.workflow_example', '--dry-run', 'keyword=abc', 'limit=5'], { encoding: 'utf8' });
 const workflowParsed = JSON.parse(workflowDry);

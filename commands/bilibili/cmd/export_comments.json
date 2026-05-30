@@ -1,0 +1,301 @@
+{
+  "name": "bilibili.export_comments",
+  "platform": "bilibili",
+  "description": "获取 Bilibili 视频前 N 条一级评论并导出 Excel。默认导出前 50 条，字段包含评论人、评论时间、评论内容、点赞数量。",
+  "riskLevel": "low",
+  "sessionRef": "public-bilibili-api",
+  "parameters": {
+    "bvid": {
+      "type": "string",
+      "required": true,
+      "description": "目标视频 BV 号，例如 BV1rPDkB7ESC。自然语言可从视频 URL 中提取。"
+    },
+    "limit": {
+      "type": "number",
+      "required": false,
+      "default": 50,
+      "description": "要导出的评论数量上限，默认 50。"
+    },
+    "mode": {
+      "type": "number",
+      "required": false,
+      "default": 3,
+      "description": "B 站评论排序模式，默认 3，按页面默认/热门排序读取；可按需要改为平台支持的其他 mode。"
+    },
+    "outputPath": {
+      "type": "string",
+      "required": false,
+      "default": "runs/bilibili-comments.xlsx",
+      "description": "Excel 输出路径。"
+    }
+  },
+  "dataSource": {
+    "id": "comments",
+    "type": "http_json",
+    "title": "Bilibili 评论导出 {{params.bvid}}",
+    "steps": [
+      {
+        "id": "resolve_video_oid",
+        "request": {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/view",
+          "query": {
+            "bvid": "{{params.bvid}}"
+          },
+          "headers": {
+            "accept": "application/json",
+            "referer": "https://www.bilibili.com/video/{{params.bvid}}/",
+            "user-agent": "platform-command/0.3.0"
+          },
+          "expect": {
+            "bodyCode": 0
+          }
+        },
+        "extract": {
+          "oid": {
+            "path": "data.aid",
+            "example": 116366820508713
+          },
+          "title": {
+            "path": "data.title",
+            "example": "如何成为 AI 工程师？你必需要掌握的三大核心技术是什么？"
+          }
+        }
+      },
+      {
+        "id": "fetch_comments",
+        "request": {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/v2/reply/wbi/main",
+          "query": {
+            "type": 1,
+            "oid": "{{steps.resolve_video_oid.oid}}",
+            "mode": "{{params.mode}}",
+            "ps": 20,
+            "next": "{{cursor.next}}"
+          },
+          "signer": {
+            "module": "./code/bilibili_wbi.js",
+            "export": "signQuery"
+          },
+          "headers": {
+            "accept": "application/json",
+            "referer": "https://www.bilibili.com/video/{{params.bvid}}/",
+            "user-agent": "platform-command/0.3.0"
+          },
+          "expect": {
+            "bodyCode": 0
+          }
+        },
+        "collect": {
+          "limit": "{{params.limit}}",
+          "initialCursor": 0,
+          "maxPages": 20,
+          "itemsPath": "data.replies",
+          "nextPath": "data.cursor.next",
+          "endPath": "data.cursor.is_end",
+          "map": [
+            {
+              "key": "commenter",
+              "path": "member.uname"
+            },
+            {
+              "key": "commentTime",
+              "path": "ctime",
+              "transform": "unixTime"
+            },
+            {
+              "key": "content",
+              "path": "content.message"
+            },
+            {
+              "key": "likes",
+              "path": "like",
+              "transform": "number"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "output": {
+    "capability": "export_excel",
+    "path": "{{params.outputPath}}",
+    "title": "Bilibili 评论导出 {{params.bvid}}",
+    "source": "comments.rows",
+    "columnsTemplate": "./templates/comments.columns.json"
+  },
+  "execution": {
+    "prefer": ["workflow", "api"],
+    "workflow": {
+      "strategy": "sequential",
+      "sessionRef": "public-bilibili-api",
+      "safety": {
+        "readOnly": true,
+        "submittedActions": false,
+        "credentials": "not_required_for_public_comments"
+      },
+      "learnedFrom": {
+        "url": "https://www.bilibili.com/video/BV1rPDkB7ESC/",
+        "observedAt": "2026-05-30",
+        "learnRunDir": "runs/2026-05-30T18-53-09-430Z_bilibili_export_comments",
+        "provider": "http_fallback_plus_browser_observation",
+        "notes": [
+          "learn fallback 生成了打开视频页的 skeleton；本机 Playwright 浏览器未安装，无法在 learn 阶段直接观测网络。",
+          "数据获取由 command.dataSource.type=http_json 描述；执行器按 JSON 中的 HTTP 步骤、分页和字段映射读取 rows。",
+          "B 站 WBI 签名代码跟随 bilibili 平台 command 包，位于 ./code/bilibili_wbi.js；输出列模板位于 ./templates/comments.columns.json。"
+        ]
+      },
+      "steps": [
+        {
+          "id": "open_video",
+          "type": "ui",
+          "description": "打开目标视频页，保留 learn skeleton 中的页面确认步骤。",
+          "ui": {
+            "url": "https://www.bilibili.com/video/{{params.bvid}}/",
+            "actions": [
+              {
+                "action": "goto",
+                "target": "https://www.bilibili.com/video/{{params.bvid}}/"
+              },
+              {
+                "action": "waitFor",
+                "target": "body",
+                "timeoutMs": 8000
+              }
+            ]
+          },
+          "successWhen": "视频页面 body 已加载。"
+        },
+        {
+          "id": "resolve_video_oid",
+          "type": "api",
+          "description": "用 BV 号解析视频 aid；评论接口需要 oid=aid。",
+          "dependsOn": ["open_video"],
+          "request": {
+            "method": "GET",
+            "url": "https://api.bilibili.com/x/web-interface/view?bvid={{params.bvid}}",
+            "headers": {
+              "accept": "application/json",
+              "referer": "https://www.bilibili.com/video/{{params.bvid}}/",
+              "user-agent": "platform-command/0.3.0"
+            },
+            "expect": {
+              "status": 200,
+              "body.code": 0
+            }
+          },
+          "extract": {
+            "aid": {
+              "from": "json",
+              "path": "$.data.aid",
+              "example": 116366820508713
+            },
+            "title": {
+              "from": "json",
+              "path": "$.data.title",
+              "example": "如何成为 AI 工程师？你必需要掌握的三大核心技术是什么？"
+            }
+          },
+          "successWhen": ["status == 200", "body.code == 0", "body.data.aid exists"]
+        },
+        {
+          "id": "fetch_comments",
+          "type": "api",
+          "description": "按 dataSource 描述分页读取评论，并映射为 rows。",
+          "dependsOn": ["resolve_video_oid"],
+          "request": {
+            "method": "GET",
+            "url": "https://api.bilibili.com/x/v2/reply/wbi/main?type=1&oid={{steps.resolve_video_oid.aid}}&mode={{params.mode}}&ps=20&next=0",
+            "headers": {
+              "accept": "application/json",
+              "referer": "https://www.bilibili.com/video/{{params.bvid}}/",
+              "user-agent": "platform-command/0.3.0"
+            },
+            "signer": {
+              "module": "./code/bilibili_wbi.js",
+              "export": "signQuery"
+            },
+            "expect": {
+              "status": 200,
+              "body.code": 0
+            }
+          },
+          "extract": {
+            "rows": {
+              "from": "json",
+              "path": "$.data.replies[*]",
+              "example": [
+                {
+                  "commenter": "示例用户",
+                  "commentTime": "2026-05-30 18:00:00",
+                  "content": "示例评论",
+                  "likes": 12
+                }
+              ]
+            }
+          },
+          "successWhen": ["status == 200", "body.code == 0", "rows.length <= params.limit"]
+        },
+        {
+          "id": "export_file",
+          "type": "manual",
+          "description": "将评论数据交给公共导出能力写入文件。",
+          "dependsOn": ["fetch_comments"],
+          "manual": "真实执行时由 command.output.capability=export_excel 自动调用公共导出能力；输出列来自 command 包内 ./templates/comments.columns.json。",
+          "successWhen": "生成 {{params.outputPath}}，且行数不超过 {{params.limit}}。"
+        }
+      ],
+      "checks": [
+        "能用 bvid 解析出 aid/oid。",
+        "能调用 dataSource 中声明的 HTTP JSON 步骤获取评论列表。",
+        "导出的 Excel 包含列模板中的列：评论人、评论时间、评论内容、点赞数量。",
+        "默认 limit=50，只读取公开评论数据，不提交任何写操作。"
+      ]
+    }
+  },
+  "successCriteria": [
+    "workflow dry-run 能展示视频解析、评论读取和导出步骤。",
+    "真实执行能通过 command 包内 code 和 templates 生成 .xlsx 文件。",
+    "Excel 表头为评论人、评论时间、评论内容、点赞数量。"
+  ],
+  "failureCases": [
+    "视频不存在、被删除、权限受限或评论区关闭。",
+    "B 站评论接口限流或返回风控校验。",
+    "公开接口分页不足 50 条，只能导出实际返回数量。",
+    "接口字段结构变化导致映射失败。"
+  ],
+  "naturalLanguage": {
+    "intent": "导出 Bilibili 视频前若干条评论到 Excel。",
+    "aliases": [
+      "B站评论导出",
+      "哔哩哔哩评论 Excel",
+      "bilibili export comments"
+    ],
+    "match": {
+      "all": ["评论"],
+      "any": ["b站", "哔哩哔哩", "bilibili"],
+      "verbs": ["导出", "获取", "excel", "表格", "输出"]
+    },
+    "extract": {
+      "bvid": {
+        "type": "regex",
+        "pattern": "(BV[0-9A-Za-z]+)"
+      },
+      "limit": {
+        "type": "number",
+        "pattern": "(?:前|最多|limit|数量)\\s*[:：=]?\\s*(\\d+)",
+        "default": 50
+      },
+      "outputPath": {
+        "type": "regex",
+        "pattern": "(?:输出|保存|导出到|output)\\s*(?:到|为|=|:|：)?\\s*([^\\s，。；,;]+\\.xlsx)",
+        "default": "runs/bilibili-comments.xlsx"
+      }
+    },
+    "examples": [
+      "获取 bilibili 视频 https://www.bilibili.com/video/BV1rPDkB7ESC/ 前50评论数据，输出 Excel",
+      "导出 B站 BV1rPDkB7ESC 前 50 条评论到 runs/comments.xlsx"
+    ]
+  }
+}

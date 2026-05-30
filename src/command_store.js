@@ -36,9 +36,18 @@ export function assertCommandName(commandName) {
 
 export function commandPath(commandName, options = {}) {
   const safe = assertCommandName(commandName);
+  const platformCommand = splitPlatformCommand(safe);
   for (const dir of commandSearchDirs(options)) {
     const file = path.join(dir, `${safe}.json`);
     if (fs.existsSync(file)) return file;
+    const packageFile = path.join(dir, safe, 'command.json');
+    if (fs.existsSync(packageFile)) return packageFile;
+    if (platformCommand) {
+      const platformFile = path.join(dir, platformCommand.platform, 'cmd', `${platformCommand.action}.json`);
+      if (fs.existsSync(platformFile)) return platformFile;
+      const platformPackageFile = path.join(dir, platformCommand.platform, 'cmd', platformCommand.action, 'command.json');
+      if (fs.existsSync(platformPackageFile)) return platformPackageFile;
+    }
   }
   return path.join(builtinCommandsDir(), `${safe}.json`);
 }
@@ -46,7 +55,7 @@ export function commandPath(commandName, options = {}) {
 export function loadCommand(commandName, options = {}) {
   const file = commandPath(commandName, options);
   if (!fs.existsSync(file)) throw new Error(`Command not found: ${commandName} (searched: ${commandSearchDirs(options).join(', ')})`);
-  return { file, source: sourceForFile(file), command: readJson(file) };
+  return { file, source: sourceForFile(file), command: hydrateCommand(readJson(file), file) };
 }
 
 export function listCommands(options = {}) {
@@ -54,15 +63,94 @@ export function listCommands(options = {}) {
   for (const dir of commandSearchDirs(options)) {
     if (!fs.existsSync(dir)) continue;
     for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith('.json')) continue;
-      const command = name.replace(/\.json$/, '');
+      const entry = path.join(dir, name);
+      let stat;
+      try {
+        stat = fs.statSync(entry);
+      } catch {
+        continue; // skip broken symlinks / unreadable entries
+      }
+      let command = '';
+      let file = '';
+      if (stat.isFile() && name.endsWith('.json')) {
+        command = name.replace(/\.json$/, '');
+        file = entry;
+      } else if (stat.isDirectory() && fs.existsSync(path.join(entry, 'command.json'))) {
+        command = name;
+        file = path.join(entry, 'command.json');
+      } else if (stat.isDirectory() && fs.existsSync(path.join(entry, 'cmd'))) {
+        for (const item of listPlatformCommandFiles(entry)) {
+          const loaded = readJson(item.file);
+          command = loaded.name || `${name}.${item.action}`;
+          file = item.file;
+          if (!found.has(command)) {
+            found.set(command, options.detailed ? commandMetadata(command, file) : command);
+          }
+        }
+        continue;
+      } else {
+        continue;
+      }
       if (!found.has(command)) {
-        const file = path.join(dir, name);
         found.set(command, options.detailed ? commandMetadata(command, file) : command);
       }
     }
   }
   return Array.from(found.values()).sort((a, b) => String(a.name || a).localeCompare(String(b.name || b)));
+}
+
+function hydrateCommand(command, file) {
+  const commandDir = commandResourceRoot(file);
+  const hydrated = structuredClone(command);
+  if (hydrated.output?.columnsTemplate && !hydrated.output.columns) {
+    hydrated.output.columns = readCommandResourceJson(commandDir, hydrated.output.columnsTemplate);
+  }
+  return hydrated;
+}
+
+export function commandResourceRoot(file) {
+  const resolved = path.resolve(file);
+  const parent = path.dirname(resolved);
+  if (path.basename(parent) === 'cmd') return path.dirname(parent);
+  if (path.basename(resolved) === 'command.json' && path.basename(path.dirname(parent)) === 'cmd') return path.dirname(path.dirname(parent));
+  return parent;
+}
+
+function splitPlatformCommand(commandName) {
+  const index = commandName.indexOf('.');
+  if (index < 1 || index === commandName.length - 1) return null;
+  return { platform: commandName.slice(0, index), action: commandName.slice(index + 1) };
+}
+
+function listPlatformCommandFiles(platformDir) {
+  const cmdDir = path.join(platformDir, 'cmd');
+  if (!fs.existsSync(cmdDir)) return [];
+  const files = [];
+  for (const name of fs.readdirSync(cmdDir)) {
+    const entry = path.join(cmdDir, name);
+    const stat = fs.statSync(entry);
+    if (stat.isFile() && name.endsWith('.json')) {
+      files.push({ action: name.replace(/\.json$/, ''), file: entry });
+    } else if (stat.isDirectory() && fs.existsSync(path.join(entry, 'command.json'))) {
+      files.push({ action: name, file: path.join(entry, 'command.json') });
+    }
+  }
+  return files;
+}
+
+function readCommandResourceJson(commandDir, resourcePath) {
+  const resolved = resolveCommandResource(commandDir, resourcePath);
+  return readJson(resolved);
+}
+
+export function resolveCommandResource(commandDir, resourcePath) {
+  if (!resourcePath || typeof resourcePath !== 'string') throw new Error('resourcePath must be a string');
+  const resolved = path.resolve(commandDir, resourcePath);
+  const root = path.resolve(commandDir);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new Error(`Command resource escapes command directory: ${resourcePath}`);
+  }
+  return resolved;
 }
 
 function sourceForFile(file) {
@@ -156,6 +244,9 @@ export function coerceParam(name, value, spec = {}) {
     }
     if (!coerced || typeof coerced !== 'object' || Array.isArray(coerced)) throw new Error(`Parameter ${name} must be an object`);
   }
-  if (spec.enum && !spec.enum.includes(coerced)) throw new Error(`Parameter ${name} must be one of: ${spec.enum.join(', ')}`);
+  if (spec.enum) {
+    if (type === 'array' || type === 'object') throw new Error(`Parameter ${name}: enum is only supported for scalar types`);
+    if (!spec.enum.includes(coerced)) throw new Error(`Parameter ${name} must be one of: ${spec.enum.join(', ')}`);
+  }
   return coerced;
 }

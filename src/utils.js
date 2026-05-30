@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
-export const ROOT = path.resolve(new URL('..', import.meta.url).pathname);
+export const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 export function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));

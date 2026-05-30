@@ -1,0 +1,18 @@
+[
+  {
+    "key": "commenter",
+    "title": "评论人"
+  },
+  {
+    "key": "commentTime",
+    "title": "评论时间"
+  },
+  {
+    "key": "content",
+    "title": "评论内容"
+  },
+  {
+    "key": "likes",
+    "title": "点赞数量"
+  }
+]
