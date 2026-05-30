@@ -82,5 +82,62 @@
     "仓库不存在或无权限。",
     "GitHub API 限流。",
     "state 参数不合法。"
-  ]
+  ],
+  "naturalLanguage": {
+    "aliases": [
+      "GitHub issues",
+      "GitHub 问题",
+      "GitHub 工单"
+    ],
+    "match": {
+      "all": [
+        "github"
+      ],
+      "any": [
+        "issue",
+        "issues",
+        "问题",
+        "工单"
+      ],
+      "verbs": [
+        "查看",
+        "列出",
+        "读取",
+        "查询",
+        "看",
+        "list",
+        "show"
+      ]
+    },
+    "extract": {
+      "owner": {
+        "type": "regex",
+        "pattern": "([A-Za-z0-9_.-]+)\\/([A-Za-z0-9_.-]+)",
+        "group": 1
+      },
+      "repo": {
+        "type": "regex",
+        "pattern": "([A-Za-z0-9_.-]+)\\/([A-Za-z0-9_.-]+)",
+        "group": 2
+      },
+      "state": {
+        "type": "enum",
+        "pattern": "(?:状态|state)\\s*(?:是|为|=|:|：)?\\s*(open|closed|all|打开|开启|关闭|全部)",
+        "map": {
+          "open": "open",
+          "opened": "open",
+          "打开": "open",
+          "开启": "open",
+          "closed": "closed",
+          "关闭": "closed",
+          "all": "all",
+          "全部": "all"
+        },
+        "default": "all"
+      }
+    },
+    "examples": [
+      "在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all"
+    ]
+  }
 }

@@ -29,6 +29,10 @@ const nlInspect = parseNaturalLanguage('巡检 GitHub 仓库 Michaelxwb/platform
 assert.equal(nlInspect.command, 'github.inspect_repository');
 assert.deepEqual(nlInspect.params, { owner: 'Michaelxwb', repo: 'platform-command', branch: 'master' });
 
+const nlBilibili = parseNaturalLanguage('给 bilibili 视频 https://www.bilibili.com/video/BV1YNGn6CEcH 评论：测试评论，并自动发布');
+assert.equal(nlBilibili.command, 'bilibili.post_comment');
+assert.deepEqual(nlBilibili.params, { videoUrl: 'https://www.bilibili.com/video/BV1YNGn6CEcH', commentText: '测试评论', autoPublish: true });
+
 const readable = formatHumanReadable({
   parsed: nlIssues,
   result: {
@@ -161,6 +165,7 @@ const invalidFile = path.join(commandsDir, `${invalidName}.json`);
 try {
   const invalid = structuredClone(workflowVerify.command);
   invalid.name = invalidName;
+  invalid.naturalLanguage = { extract: { missing: { type: 'regex', pattern: '[' } } };
   invalid.execution.workflow.steps = [
     { id: 'search', type: 'api', request: { method: 'GET' } },
     { id: 'open', type: 'ui', dependsOn: ['missing'], ui: { actions: [{ action: 'fill', selector: '#q' }] } },
@@ -174,6 +179,8 @@ try {
   assert.ok(invalidVerify.errors.some((error) => error.includes('dependsOn references unknown step')));
   assert.ok(invalidVerify.errors.some((error) => error.includes('selector and .value are required for fill')));
   assert.ok(invalidVerify.errors.some((error) => error.includes('circular dependency')));
+  assert.ok(invalidVerify.errors.some((error) => error.includes('naturalLanguage.extract.missing references unknown parameter')));
+  assert.ok(invalidVerify.errors.some((error) => error.includes('naturalLanguage.extract.missing.pattern must be a valid RegExp')));
 } finally {
   if (fs.existsSync(invalidFile)) fs.unlinkSync(invalidFile);
 }

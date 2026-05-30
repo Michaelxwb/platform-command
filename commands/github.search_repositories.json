@@ -76,5 +76,42 @@
     "GitHub Search API 限流。",
     "关键词没有结果。",
     "GitHub 页面结构变化。"
-  ]
+  ],
+  "naturalLanguage": {
+    "aliases": [
+      "GitHub 搜索仓库",
+      "search GitHub repositories"
+    ],
+    "match": {
+      "all": [
+        "github"
+      ],
+      "any": [
+        "搜索",
+        "查找",
+        "search"
+      ],
+      "verbs": [
+        "搜索",
+        "查找",
+        "search"
+      ]
+    },
+    "extract": {
+      "query": {
+        "type": "after",
+        "pattern": "(?:搜索|查找|search)\\s*(?:GitHub|github)?\\s*(?:仓库|repository|repositories|repo)?\\s*(?:关键词|query)?\\s*(?:是|为|=|:|：)?\\s*(.+)$",
+        "cleanup": "limitClause"
+      },
+      "limit": {
+        "type": "number",
+        "pattern": "(?:limit|限制|最多|前)\\s*(?:=|:|：)?\\s*(\\d+)",
+        "group": 1,
+        "default": 5
+      }
+    },
+    "examples": [
+      "在 GitHub 搜索仓库 platform-command user:Michaelxwb，最多 3"
+    ]
+  }
 }

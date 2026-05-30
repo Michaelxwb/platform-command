@@ -25,7 +25,11 @@
     }
   },
   "execution": {
-    "prefer": ["workflow", "api", "ui"],
+    "prefer": [
+      "workflow",
+      "api",
+      "ui"
+    ],
     "workflow": {
       "strategy": "sequential",
       "sessionRef": "prelogged-github-browser-profile",
@@ -66,13 +70,18 @@
             "attempts": 2,
             "backoffMs": 500
           },
-          "successWhen": ["status == 200", "body.full_name == params.owner + '/' + params.repo"]
+          "successWhen": [
+            "status == 200",
+            "body.full_name == params.owner + '/' + params.repo"
+          ]
         },
         {
           "id": "repo_page",
           "type": "ui",
           "description": "打开 GitHub 仓库页面并确认页面标题/仓库名可见。",
-          "dependsOn": ["repo_api"],
+          "dependsOn": [
+            "repo_api"
+          ],
           "ui": {
             "url": "https://github.com/{{params.owner}}/{{params.repo}}",
             "actions": [
@@ -108,7 +117,10 @@
           "retry": {
             "attempts": 1
           },
-          "successWhen": ["repository page visible", "repo name matches params.repo"]
+          "successWhen": [
+            "repository page visible",
+            "repo name matches params.repo"
+          ]
         }
       ]
     }
@@ -124,5 +136,52 @@
     "GitHub API 限流或网络异常。",
     "浏览器登录态失效，但公开仓库读取仍应可回退到匿名访问。",
     "页面结构变化导致 UI 断言选择器需要重新学习。"
-  ]
+  ],
+  "naturalLanguage": {
+    "aliases": [
+      "GitHub 仓库巡检",
+      "inspect GitHub repository"
+    ],
+    "match": {
+      "all": [
+        "github"
+      ],
+      "any": [
+        "巡检",
+        "检查",
+        "inspect",
+        "repository",
+        "仓库"
+      ],
+      "verbs": [
+        "巡检",
+        "检查",
+        "查看",
+        "inspect",
+        "check"
+      ]
+    },
+    "extract": {
+      "owner": {
+        "type": "regex",
+        "pattern": "([A-Za-z0-9_.-]+)\\/([A-Za-z0-9_.-]+)",
+        "group": 1
+      },
+      "repo": {
+        "type": "regex",
+        "pattern": "([A-Za-z0-9_.-]+)\\/([A-Za-z0-9_.-]+)",
+        "group": 2
+      },
+      "branch": {
+        "type": "regex",
+        "pattern": "(?:分支|branch)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_.\\/-]+)",
+        "group": 1,
+        "fallbackPattern": "\\b(master|main|dev|develop|release|test)\\b",
+        "default": "master"
+      }
+    },
+    "examples": [
+      "巡检 GitHub 仓库 Michaelxwb/platform-command，分支 master"
+    ]
+  }
 }

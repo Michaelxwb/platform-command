@@ -82,5 +82,56 @@
     "分支不存在。",
     "仓库不存在或无权限。",
     "GitHub API 限流。"
-  ]
+  ],
+  "naturalLanguage": {
+    "aliases": [
+      "GitHub commits",
+      "GitHub 提交记录",
+      "GitHub 提交历史"
+    ],
+    "match": {
+      "all": [
+        "github"
+      ],
+      "any": [
+        "commit",
+        "commits",
+        "提交",
+        "提交记录",
+        "提交历史"
+      ],
+      "verbs": [
+        "查看",
+        "列出",
+        "读取",
+        "查询",
+        "看",
+        "最近",
+        "list",
+        "show"
+      ]
+    },
+    "extract": {
+      "owner": {
+        "type": "regex",
+        "pattern": "([A-Za-z0-9_.-]+)\\/([A-Za-z0-9_.-]+)",
+        "group": 1
+      },
+      "repo": {
+        "type": "regex",
+        "pattern": "([A-Za-z0-9_.-]+)\\/([A-Za-z0-9_.-]+)",
+        "group": 2
+      },
+      "branch": {
+        "type": "regex",
+        "pattern": "(?:分支|branch)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_.\\/-]+)",
+        "group": 1,
+        "fallbackPattern": "\\b(master|main|dev|develop|release|test)\\b",
+        "default": "master"
+      }
+    },
+    "examples": [
+      "列出 GitHub 仓库 Michaelxwb/platform-command 的 commits，分支 master"
+    ]
+  }
 }

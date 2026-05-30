@@ -5,6 +5,7 @@ const REQUIRED_TOP_LEVEL = ['name', 'platform', 'description', 'riskLevel', 'par
 const RISK_LEVELS = new Set(['low', 'medium', 'high']);
 const STEP_TYPES = new Set(['api', 'ui', 'manual']);
 const PARAM_TYPES = new Set(['string', 'number', 'boolean', 'array', 'object']);
+const NL_EXTRACT_TYPES = new Set(['regex', 'number', 'enum', 'url', 'after', 'booleanKeyword']);
 const STEP_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
 export function verifyCommand(commandName, options = {}) {
@@ -17,6 +18,7 @@ export function verifyCommand(commandName, options = {}) {
     errors.push('riskLevel must be one of low, medium, high');
   }
   validateParameters(command, errors);
+  validateNaturalLanguage(command, errors);
   if (!command.execution || !Array.isArray(command.execution.prefer)) {
     errors.push('execution.prefer must be an array, e.g. ["api", "ui", "workflow"]');
   }
@@ -39,6 +41,80 @@ function validateParameters(command, errors) {
     if (spec.default !== undefined && spec.required === true) errors.push(`parameters.${name} cannot be both required and have default`);
     if (spec.default !== undefined && spec.type && !matchesType(spec.default, spec.type)) errors.push(`parameters.${name}.default must match type ${spec.type}`);
     if (spec.enum && (!Array.isArray(spec.enum) || spec.enum.length === 0)) errors.push(`parameters.${name}.enum must be a non-empty array`);
+  }
+}
+
+
+function validateNaturalLanguage(command, errors) {
+  const nl = command.naturalLanguage;
+  if (nl === undefined) return;
+  if (!nl || typeof nl !== 'object' || Array.isArray(nl)) {
+    errors.push('naturalLanguage must be an object');
+    return;
+  }
+  if (nl.intent !== undefined && typeof nl.intent !== 'string') errors.push('naturalLanguage.intent must be a string');
+  for (const field of ['aliases', 'examples']) {
+    if (nl[field] !== undefined && (!Array.isArray(nl[field]) || nl[field].some((item) => typeof item !== 'string'))) {
+      errors.push(`naturalLanguage.${field} must be an array of strings`);
+    }
+  }
+  if (nl.match !== undefined) validateNaturalLanguageMatch(nl.match, errors);
+  if (nl.extract !== undefined) validateNaturalLanguageExtract(nl.extract, command, errors);
+}
+
+function validateNaturalLanguageMatch(match, errors) {
+  if (!match || typeof match !== 'object' || Array.isArray(match)) {
+    errors.push('naturalLanguage.match must be an object');
+    return;
+  }
+  for (const field of ['all', 'any', 'verbs']) {
+    if (match[field] !== undefined && (!Array.isArray(match[field]) || match[field].some((item) => typeof item !== 'string'))) {
+      errors.push(`naturalLanguage.match.${field} must be an array of strings`);
+    }
+  }
+}
+
+function validateNaturalLanguageExtract(extract, command, errors) {
+  if (!extract || typeof extract !== 'object' || Array.isArray(extract)) {
+    errors.push('naturalLanguage.extract must be an object');
+    return;
+  }
+  const paramNames = new Set(Object.keys(command.parameters || {}));
+  for (const [name, rule] of Object.entries(extract)) {
+    const prefix = `naturalLanguage.extract.${name}`;
+    if (!paramNames.has(name)) errors.push(`${prefix} references unknown parameter`);
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
+      errors.push(`${prefix} must be an object`);
+      continue;
+    }
+    if (!rule.type) errors.push(`${prefix}.type is required`);
+    if (rule.type && !NL_EXTRACT_TYPES.has(rule.type)) errors.push(`${prefix}.type is unsupported: ${rule.type}`);
+    if (['regex', 'number', 'enum', 'url'].includes(rule.type) && !rule.pattern) errors.push(`${prefix}.pattern is required for ${rule.type}`);
+    if (rule.pattern !== undefined) validateRegex(rule.pattern, `${prefix}.pattern`, errors);
+    if (rule.fallbackPattern !== undefined) validateRegex(rule.fallbackPattern, `${prefix}.fallbackPattern`, errors);
+    if (rule.group !== undefined && !['string', 'number'].includes(typeof rule.group)) errors.push(`${prefix}.group must be a string or number`);
+    if (rule.type === 'enum' && rule.map !== undefined && (!rule.map || typeof rule.map !== 'object' || Array.isArray(rule.map))) errors.push(`${prefix}.map must be an object`);
+    if (rule.type === 'booleanKeyword') {
+      for (const field of ['true', 'false']) {
+        if (rule[field] !== undefined && (!Array.isArray(rule[field]) || rule[field].some((item) => typeof item !== 'string'))) {
+          errors.push(`${prefix}.${field} must be an array of strings`);
+        }
+      }
+    }
+    const param = command.parameters?.[name];
+    if (rule.default !== undefined && param?.type && !matchesType(rule.default, param.type)) errors.push(`${prefix}.default must match parameter type ${param.type}`);
+  }
+}
+
+function validateRegex(pattern, prefix, errors) {
+  if (typeof pattern !== 'string') {
+    errors.push(`${prefix} must be a string`);
+    return;
+  }
+  try {
+    new RegExp(pattern);
+  } catch (error) {
+    errors.push(`${prefix} must be a valid RegExp: ${error.message}`);
   }
 }
 

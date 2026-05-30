@@ -1,108 +1,154 @@
+import { listCommands, loadCommand } from './command_store.js';
 import { executeCommand } from './execute.js';
 
-const REPO_RE = /([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/;
-const STATE_RE = /(?:状态|state)\s*(?:是|为|=|:|：)?\s*(open|closed|all|打开|开启|关闭|全部)/i;
-const BRANCH_RE = /(?:分支|branch)\s*(?:是|为|=|:|：)?\s*([A-Za-z0-9_.\/-]+)/i;
-const LIMIT_RE = /(?:limit|限制|最多|前)\s*(?:=|:|：)?\s*(\d+)/i;
 
-const STATE_MAP = new Map([
-  ['open', 'open'], ['opened', 'open'], ['打开', 'open'], ['开启', 'open'],
-  ['closed', 'closed'], ['关闭', 'closed'],
-  ['all', 'all'], ['全部', 'all']
-]);
-
-export function parseNaturalLanguage(input) {
+export function parseNaturalLanguage(input, options = {}) {
   const text = String(input || '').trim();
   if (!text) throw new Error('自然语言指令不能为空');
-  const lower = text.toLowerCase();
-  const repo = extractRepo(text);
 
-  if (/(issue|issues|工单|问题)/i.test(text) && /(查看|列出|读取|查询|看)/.test(text)) {
-    const state = normalizeState(matchGroup(text, STATE_RE) || (lower.includes('open') ? 'open' : lower.includes('closed') ? 'closed' : 'all'));
-    return withConfidence({ command: 'github.list_issues', params: { ...repo, state }, intent: '查看 GitHub Issues' }, repo ? 0.96 : 0.78);
+  const candidates = [];
+  for (const item of listCommands({ commandsDir: options.commandsDir })) {
+    const commandName = typeof item === 'string' ? item : item.name;
+    const { command } = loadCommand(commandName, { commandsDir: options.commandsDir });
+    if (!command.naturalLanguage) continue;
+    const matched = matchCommand(text, command);
+    if (!matched.ok) continue;
+    const params = extractParams(text, command);
+    candidates.push({
+      command: command.name,
+      params,
+      intent: command.naturalLanguage.intent || command.description,
+      confidence: matched.confidence,
+      matchedBy: 'command.naturalLanguage'
+    });
   }
 
-  if (/(commit|commits|提交|提交记录|提交历史)/i.test(text) && /(查看|列出|读取|查询|看|最近)/.test(text)) {
-    const branch = matchGroup(text, BRANCH_RE) || inferBranch(text) || 'master';
-    return withConfidence({ command: 'github.list_commits', params: { ...repo, branch }, intent: '查看 GitHub 提交记录' }, repo ? 0.95 : 0.76);
-  }
-
-  if (/(搜索|查找|search)/i.test(text) && /(github|仓库|repository|repositories|repo)/i.test(text)) {
-    const query = extractSearchQuery(text);
-    const limit = Number(matchGroup(text, LIMIT_RE) || 5);
-    return withConfidence({ command: 'github.search_repositories', params: { query, limit }, intent: '搜索 GitHub 仓库' }, query ? 0.92 : 0.7);
-  }
-
-  if (/(巡检|查看|读取|检查|仓库信息|基本信息)/.test(text) && /(github|仓库|repo|repository)/i.test(text)) {
-    const branch = matchGroup(text, BRANCH_RE) || inferBranch(text) || 'master';
-    return withConfidence({ command: 'github.inspect_repository', params: { ...repo, branch }, intent: '巡检 GitHub 仓库' }, repo ? 0.94 : 0.72);
-  }
-
-  throw new Error(`无法精准识别自然语言指令：${text}`);
+  candidates.sort((a, b) => b.confidence - a.confidence);
+  if (candidates[0]) return candidates[0];
+  throw new Error('无法识别自然语言指令，请改用 execute --command，或在 command JSON 中补充 naturalLanguage 配置');
 }
 
 export async function runNaturalLanguage(input, options = {}) {
-  const parsed = parseNaturalLanguage(input);
-  if (parsed.confidence < 0.85) {
-    throw new Error(`识别置信度不足(${parsed.confidence})，请补充 owner/repo 或明确动作`);
-  }
-  const result = await executeCommand(parsed.command, parsed.params, { dryRun: options.dryRun !== false, confirm: !!options.confirm });
+  const parsed = parseNaturalLanguage(input, options);
+  const result = await executeCommand(parsed.command, parsed.params, {
+    dryRun: !options.executeReal,
+    confirm: options.confirm,
+    commandsDir: options.commandsDir
+  });
   return { parsed, result };
 }
 
-export function formatHumanReadable({ parsed, result }) {
-  const params = result.params || parsed.params;
+export function formatHumanReadable(nlResult) {
+  const { parsed, result } = nlResult;
+  const params = parsed.params || {};
   const lines = [];
-  lines.push(`# 已识别并调用封装 Workflow`);
+  lines.push(`# platform-command 自然语言解析结果`);
   lines.push('');
-  lines.push(`- 识别意图：${parsed.intent}`);
-  lines.push(`- 内部指令：${parsed.command}`);
-  lines.push(`- 识别置信度：${Math.round(parsed.confidence * 100)}%`);
-  lines.push(`- 执行状态：${result.status}`);
-  lines.push(`- 风险等级：${result.riskLevel}`);
-  lines.push(`- Workflow 类型：${result.plan?.kind || 'unknown'}`);
-  lines.push(`- Workflow 步骤：${(result.plan?.steps || []).map((s) => `${s.id}(${s.type})`).join(' -> ') || '无'}`);
+  lines.push(`- 识别意图: ${parsed.intent}`);
+  lines.push(`- 匹配 command: ${parsed.command}`);
+  lines.push(`- 置信度: ${parsed.confidence}`);
   lines.push('');
   lines.push('## 参数');
   for (const [key, value] of Object.entries(params)) lines.push(`- ${key}: ${value}`);
   lines.push('');
   lines.push('## 结果说明');
-  lines.push(result.status === 'dry_run'
-    ? '已生成 dry-run 计划，用于确认会调用哪个封装 workflow、带入哪些参数、按什么步骤执行；未执行真实写操作。'
-    : '已执行真实流程。');
+  if (result.status === 'dry_run') {
+    lines.push('已识别并调用封装 Workflow；已生成 dry-run 计划，用于确认会调用哪个封装 workflow、带入哪些参数、按什么步骤执行；未执行真实写操作。');
+    const steps = result.plan?.steps || [];
+    if (steps.length) lines.push(`- Workflow 步骤: ${steps.map((step) => `${step.id}(${step.type})`).join(' -> ')}`);
+  } else {
+    lines.push('已执行真实流程。');
+  }
   lines.push('');
   lines.push('## 下一步');
   lines.push('- 如需真实读取 API 或打开页面验证，可在安全确认后执行对应 workflow。');
   return lines.join('\n');
 }
 
-function extractRepo(text) {
-  const match = text.match(REPO_RE);
-  return match ? { owner: match[1], repo: match[2] } : {};
+function matchCommand(text, command) {
+  const nl = command.naturalLanguage || {};
+  const match = nl.match || {};
+  let score = 0;
+  const maxScore = 6;
+  if (containsAll(text, match.all || [])) score += 2;
+  else if ((match.all || []).length) return { ok: false, confidence: 0 };
+  if (containsAny(text, match.any || [])) score += 2;
+  else if ((match.any || []).length) return { ok: false, confidence: 0 };
+  if (containsAny(text, match.verbs || [])) score += 1.5;
+  else if ((match.verbs || []).length) return { ok: false, confidence: 0 };
+  if (Array.isArray(nl.aliases) && containsAny(text, nl.aliases)) score += 0.5;
+  if (!score) return { ok: false, confidence: 0 };
+  return { ok: true, confidence: Math.min(0.99, Number((0.55 + (score / maxScore) * 0.44).toFixed(2))) };
 }
 
-function matchGroup(text, re) {
+function extractParams(text, command) {
+  const params = {};
+  const specs = command.naturalLanguage?.extract || {};
+  for (const [name, rule] of Object.entries(specs)) {
+    const value = extractValue(text, rule);
+    if (value !== undefined && value !== '') params[name] = value;
+  }
+  for (const [name, spec] of Object.entries(command.parameters || {})) {
+    if (!(name in params) && Object.prototype.hasOwnProperty.call(spec, 'default')) params[name] = spec.default;
+  }
+  return params;
+}
+
+function extractValue(text, rule = {}) {
+  if (rule.type === 'enum') {
+    const raw = regexGroup(text, rule.pattern, rule.group || 1);
+    if (!raw) return rule.default;
+    return rule.map?.[raw] || rule.map?.[raw.toLowerCase()] || raw;
+  }
+  if (rule.type === 'regex') {
+    return regexGroup(text, rule.pattern, rule.group || 1)
+      || regexGroup(text, rule.fallbackPattern, 1)
+      || rule.default;
+  }
+  if (rule.type === 'number') {
+    const raw = regexGroup(text, rule.pattern, rule.group || 1);
+    return raw ? Number(raw) : rule.default;
+  }
+  if (rule.type === 'url') {
+    const raw = regexGroup(text, rule.pattern, 0);
+    return raw || rule.default;
+  }
+  if (rule.type === 'after') {
+    const quoted = text.match(/[“\"]([^”\"]+)[”\"]/);
+    let raw = quoted?.[1]?.trim() || regexGroup(text, rule.pattern, rule.group || 1);
+    raw = cleanupText(raw || '', rule.cleanup);
+    return raw || rule.default;
+  }
+  if (rule.type === 'booleanKeyword') {
+    if (containsAny(text, rule.false || [])) return false;
+    if (containsAny(text, rule.true || [])) return true;
+    return rule.default;
+  }
+  return undefined;
+}
+
+function regexGroup(text, pattern, group = 1) {
+  if (!pattern) return '';
+  const re = new RegExp(pattern, 'i');
   const m = text.match(re);
-  return m ? m[1] : '';
+  return m ? String(m[group] || '').trim() : '';
 }
 
-function normalizeState(value) {
-  return STATE_MAP.get(String(value || '').toLowerCase()) || STATE_MAP.get(value) || 'all';
+function cleanupText(value, cleanup) {
+  let result = String(value || '').trim();
+  if (cleanup === 'limitClause') result = result.replace(/，?\s*(?:最多|limit|限制)\s*[:：=]?\s*\d+.*$/i, '').trim();
+  if (cleanup === 'autoPublishClause') result = result.replace(/[，,。；;]?\s*(?:并)?(?:自动发布|直接发布|发出去|点击发布|不要发布|不发布|只填草稿|草稿|autoPublish\s*=\s*(?:true|false)).*$/i, '').trim();
+  return result;
 }
 
-function inferBranch(text) {
-  const m = text.match(/\b(master|main|dev|develop|release|test)\b/i);
-  return m ? m[1] : '';
+function containsAll(text, needles) {
+  return needles.every((needle) => contains(text, needle));
 }
 
-function extractSearchQuery(text) {
-  const quoted = text.match(/[“\"]([^”\"]+)[”\"]/);
-  if (quoted) return quoted[1].trim();
-  const after = text.match(/(?:搜索|查找|search)\s*(?:GitHub|github)?\s*(?:仓库|repository|repositories|repo)?\s*(?:关键词|query)?\s*(?:是|为|=|:|：)?\s*(.+)$/i);
-  if (!after) return '';
-  return after[1].replace(/，?\s*(?:最多|limit|限制)\s*[:：=]?\s*\d+.*$/i, '').trim();
+function containsAny(text, needles) {
+  return needles.some((needle) => contains(text, needle));
 }
 
-function withConfidence(obj, confidence) {
-  return { ...obj, confidence };
+function contains(text, needle) {
+  return String(text).toLowerCase().includes(String(needle).toLowerCase());
 }
