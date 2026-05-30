@@ -102,7 +102,7 @@ const listJson = JSON.parse(execFileSync('node', ['src/cli.js', 'list', '--json'
 const listedBuiltin = listJson.commands.find((item) => item.name === 'demo.search_example' && item.source === 'builtin');
 assert.ok(listedBuiltin);
 assert.equal(listedBuiltin.package.type, 'builtin');
-assert.equal(listedBuiltin.package.name, 'platform-command');
+assert.equal(listedBuiltin.package.name, JSON.parse(fs.readFileSync('package.json', 'utf8')).name);
 
 const mcpInput = [
   JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
