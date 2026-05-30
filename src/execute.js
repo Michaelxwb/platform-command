@@ -7,7 +7,7 @@ export async function executeCommand(commandName, providedParams = {}, options =
   const { file, command } = loadCommand(commandName);
   const params = mergeParams(command, providedParams);
   const dryRun = options.dryRun !== false;
-  const plan = buildExecutionPlan(command, params);
+  const plan = buildExecutionPlan(command, params, { failOnUnresolvedTemplates: options.dryRun === false });
   if (dryRun) {
     return {
       status: 'dry_run',
@@ -23,9 +23,9 @@ export async function executeCommand(commandName, providedParams = {}, options =
   throw new Error('Real execution engine is not enabled in V2; use dry-run workflow plans first.');
 }
 
-function buildExecutionPlan(command, params) {
+function buildExecutionPlan(command, params, options = {}) {
   if (command.execution?.workflow) {
-    return buildWorkflowPlan(command, params);
+    return buildWorkflowPlan(command, params, options);
   }
   const prefer = command.execution?.prefer || [];
   const steps = [];

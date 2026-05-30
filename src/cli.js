@@ -12,13 +12,15 @@ Usage:
   node src/cli.js --help
   node src/cli.js list
   node src/cli.js verify --command <name>
-  node src/cli.js execute --command <name> [--dry-run] [--confirm] key=value ...
+  node src/cli.js execute --command <name> [--dry-run] key=value ...
+  node src/cli.js execute --command <name> --execute-real --confirm key=value ...  # experimental; currently blocked
   node src/cli.js learn --platform <name> --action <name> --url <url> [--observe-seconds 8] [--headed]
 
 Examples:
   node src/cli.js verify --command demo.search_example
   node src/cli.js execute --command demo.search_example --dry-run keyword=abc
   node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5
+  node src/cli.js execute --command demo.workflow_example --execute-real --confirm keyword=abc limit=5
   node src/cli.js learn --platform demo --action inspect --url https://example.com --observe-seconds 3
 `);
 }
@@ -54,6 +56,8 @@ async function main() {
   if (cmd === 'execute') {
     if (!args.command) throw new Error('execute requires --command');
     const params = parseKeyValues(args._);
+    if (args.dryRun && args.executeReal) throw new Error('--dry-run and --execute-real cannot be used together');
+    if (args.executeReal && !args.confirm) throw new Error('--execute-real requires --confirm');
     const result = await executeCommand(args.command, params, { dryRun: !args.executeReal, confirm: !!args.confirm });
     printJson(result);
     return;

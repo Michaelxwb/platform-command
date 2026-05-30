@@ -1,23 +1,38 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mergeParams } from '../src/command_store.js';
+import { buildWorkflowPlan } from '../src/workflow.js';
 import { verifyCommand } from '../src/verify.js';
+
+const commandsDir = path.join(process.cwd(), 'commands');
 
 const demo = verifyCommand('demo.search_example');
 assert.equal(demo.ok, true, demo.errors.join('\n'));
 
-const merged = mergeParams(demo.command, { keyword: 'abc' });
+const merged = mergeParams(demo.command, { keyword: 'abc', page: '2' });
 assert.equal(merged.keyword, 'abc');
-assert.equal(merged.page, 1);
+assert.equal(merged.page, 2);
+assert.equal(typeof merged.page, 'number');
+assert.throws(() => mergeParams(demo.command, { keyword: 'abc', page: 'NaN-ish' }), /must be a number/);
 
 const help = execFileSync('node', ['src/cli.js', '--help'], { encoding: 'utf8' });
-assert.match(help, /platform-command/);
+assert.match(help, /--execute-real --confirm/);
 
 const dry = execFileSync('node', ['src/cli.js', 'execute', '--command', 'demo.search_example', '--dry-run', 'keyword=abc'], { encoding: 'utf8' });
 const parsed = JSON.parse(dry);
 assert.equal(parsed.status, 'dry_run');
 assert.equal(parsed.params.keyword, 'abc');
 assert.equal(parsed.params.page, 1);
+
+const conflict = spawnSync('node', ['src/cli.js', 'execute', '--command', 'demo.search_example', '--dry-run', '--execute-real', 'keyword=abc'], { encoding: 'utf8' });
+assert.notEqual(conflict.status, 0);
+assert.match(conflict.stderr, /cannot be used together/);
+
+const realWithoutConfirm = spawnSync('node', ['src/cli.js', 'execute', '--command', 'demo.search_example', '--execute-real', 'keyword=abc'], { encoding: 'utf8' });
+assert.notEqual(realWithoutConfirm.status, 0);
+assert.match(realWithoutConfirm.stderr, /requires --confirm/);
 
 const workflowVerify = verifyCommand('demo.workflow_example');
 assert.equal(workflowVerify.ok, true, workflowVerify.errors.join('\n'));
@@ -28,6 +43,7 @@ assert.equal(workflowParsed.status, 'dry_run');
 assert.equal(workflowParsed.plan.kind, 'workflow');
 assert.equal(workflowParsed.plan.steps.length, 4);
 assert.equal(workflowParsed.plan.steps[0].request.query.q, 'abc');
+assert.equal(workflowParsed.plan.steps[0].request.query.limit, '5');
 assert.equal(workflowParsed.plan.steps[1].request.url, 'https://example.com/api/items/demo-item-001');
 const uiStep = workflowParsed.plan.steps.find((step) => step.id === 'open_detail_page');
 assert.ok(uiStep, 'UI step should exist');
@@ -39,5 +55,33 @@ assert.doesNotMatch(serialized, /Authorization\"\s*:\s*\"(?!\[REDACTED\])/i);
 assert.doesNotMatch(serialized, /Cookie\"\s*:\s*\"(?!\[REDACTED\])/i);
 assert.doesNotMatch(serialized, /password\"\s*:\s*\"[^\[]+/i);
 assert.doesNotMatch(serialized, /secret\"\s*:\s*\"[^\[]+/i);
+
+const unresolvedCommand = structuredClone(workflowVerify.command);
+unresolvedCommand.execution.workflow.steps[0].request.query.missing = '{{notDeclared}}';
+const unresolvedPlan = buildWorkflowPlan(unresolvedCommand, { keyword: 'abc', page: 1, limit: 5 });
+assert.ok(unresolvedPlan.warnings.some((item) => item.code === 'UNRESOLVED_TEMPLATE' && item.expression === 'notDeclared'));
+assert.throws(() => buildWorkflowPlan(unresolvedCommand, { keyword: 'abc', page: 1, limit: 5 }, { failOnUnresolvedTemplates: true }), /Unresolved template reference/);
+
+const invalidName = '__invalid.workflow_validation';
+const invalidFile = path.join(commandsDir, `${invalidName}.json`);
+try {
+  const invalid = structuredClone(workflowVerify.command);
+  invalid.name = invalidName;
+  invalid.execution.workflow.steps = [
+    { id: 'search', type: 'api', request: { method: 'GET' } },
+    { id: 'open', type: 'ui', dependsOn: ['missing'], ui: { actions: [{ action: 'fill', selector: '#q' }] } },
+    { id: 'cycle_a', type: 'manual', dependsOn: ['cycle_b'], manual: 'a' },
+    { id: 'cycle_b', type: 'manual', dependsOn: ['cycle_a'], manual: 'b' }
+  ];
+  fs.writeFileSync(invalidFile, JSON.stringify(invalid, null, 2));
+  const invalidVerify = verifyCommand(invalidName);
+  assert.equal(invalidVerify.ok, false);
+  assert.ok(invalidVerify.errors.some((error) => error.includes('request.url is required')));
+  assert.ok(invalidVerify.errors.some((error) => error.includes('dependsOn references unknown step')));
+  assert.ok(invalidVerify.errors.some((error) => error.includes('selector and .value are required for fill')));
+  assert.ok(invalidVerify.errors.some((error) => error.includes('circular dependency')));
+} finally {
+  if (fs.existsSync(invalidFile)) fs.unlinkSync(invalidFile);
+}
 
 console.log('All tests passed.');
