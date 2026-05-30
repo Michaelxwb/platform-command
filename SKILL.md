@@ -1,74 +1,102 @@
 # platform-command skill
 
-## Purpose
-`platform-command` turns repeated platform operations into reusable commands. It helps the agent autonomously learn a target platform action, inspect UI elements, capture network requests, infer parameters, generate command templates, execute learned commands, and verify results.
+## 目标
 
-## Core modes
+`platform-command` 用于把平台上的重复操作抽象成可复用指令。它帮助 agent 自主学习目标平台动作，观察页面元素，捕获网络请求，推断参数，生成 command 模板，执行已学习指令，并验证最终业务结果。
 
-### 1. learn
-Learn a new platform action.
+这个 skill 的核心价值是：
+
+1. 从真实页面操作中学习流程。
+2. 识别哪些字段应该成为指令参数。
+3. 发现接口调用与页面动作之间的对应关系。
+4. 优先使用接口执行，必要时回退到 UI 操作。
+5. 用业务结果验证操作是否真的成功。
+
+## 核心模式
+
+### 1. learn：学习动作
+
+学习一个新的平台动作。
 
 ```bash
 node src/cli.js learn --platform demo --action search_example --url https://example.com --observe-seconds 10
 ```
 
-The learn mode should:
-- open the target page;
-- observe DOM structure;
-- capture network requests and responses metadata;
-- identify forms, buttons, inputs, tables and success/error hints;
-- write a run report under `runs/`;
-- optionally generate a draft command template.
+learn 模式应该完成：
 
-Safety: learn mode is observation-first. It must not submit destructive actions unless the user explicitly allows test submission.
+- 打开目标页面；
+- 观察 DOM 结构；
+- 捕获网络请求与响应元信息；
+- 识别表单、按钮、输入框、表格、成功提示、错误提示；
+- 在 `runs/` 目录下写入学习报告；
+- 在后续版本中可进一步生成 command 草稿。
 
-### 2. extract_api
-Extract and summarize candidate APIs from a learn run.
+安全要求：learn 模式以观察为先。除非用户明确允许测试提交，否则不能主动执行破坏性提交。
 
-First version stores captured request metadata inside the learn report. Later versions may promote stable requests into command templates.
+### 2. extract_api：提取接口
 
-### 3. generate_command
-Generate or update a command template under `commands/`.
+从一次 learn 结果中提取并总结候选接口。
 
-A command template defines:
-- command name;
-- platform;
-- risk level;
-- parameters, defaults and validation hints;
-- preferred execution path: API first, UI fallback;
-- success criteria;
-- failure cases.
+当前版本会把捕获到的请求元信息保存到学习报告中。后续版本可以进一步把稳定接口提升为 command 模板中的执行步骤。
 
-### 4. execute
-Execute a learned command.
+### 3. generate_command：生成指令
+
+在 `commands/` 目录下生成或更新 command 模板。
+
+一个 command 模板应描述：
+
+- 指令名称；
+- 所属平台；
+- 风险等级；
+- 参数、默认值和校验提示；
+- 推荐执行路径：优先 API，必要时 UI 回退；
+- 成功标准；
+- 常见失败场景。
+
+### 4. execute：执行指令
+
+执行一个已学习的 command。
 
 ```bash
 node src/cli.js execute --command demo.search_example --dry-run keyword=abc
 ```
 
-Default expectation:
-- dry-run is safe and prints the execution plan;
-- API execution is preferred when all API metadata is available;
-- UI execution is fallback;
-- high-risk commands require explicit confirmation.
+默认规则：
 
-### 5. verify
-Verify a command template is structurally valid.
+- dry-run 是安全模式，只输出执行计划，不做真实变更；
+- 当 API 元信息完整时，优先使用 API 执行；
+- API 不可用或风险较高时，可回退到 UI 执行；
+- 高风险 command 必须显式确认后才能真实执行。
+
+### 5. verify：验证指令
+
+验证 command 模板结构是否有效。
 
 ```bash
 node src/cli.js verify --command demo.search_example
 ```
 
-## Safety rules
-- Never store secrets, raw cookies or raw authorization headers in command files.
-- Record only token field names and sources unless user explicitly authorizes secure local storage.
-- Default to dry-run for unknown or high-risk actions.
-- Treat deletion, payment, refund, batch update, permission change and external messaging as high-risk.
-- Success means business result verified, not merely button clicked.
+verify 至少应检查：
 
-## Result principle
-Every command should eventually answer:
-1. What parameters were used?
-2. Which execution path was used: API or UI?
-3. What evidence proves success?
-4. What failed and where, if it failed?
+- 必填字段是否存在；
+- 参数定义是否合理；
+- 风险等级是否声明；
+- 执行计划是否存在；
+- 成功标准是否存在。
+
+## 安全规则
+
+- 禁止把密码、私钥、原始 Cookie、原始 Authorization Header 写入 command 文件。
+- 默认只记录 token 字段名、来源和用途，不记录明文值。
+- 未知动作和高风险动作默认 dry-run。
+- 删除、支付、退款、批量更新、权限变更、外部消息发送等动作一律视为高风险。
+- 成功必须以业务结果验证为准，而不是只看按钮点击成功或接口返回成功。
+
+## 结果原则
+
+每个 command 最终都应该能回答：
+
+1. 使用了哪些参数？
+2. 实际走的是 API 路径还是 UI 路径？
+3. 有什么证据证明业务结果成功？
+4. 如果失败，失败发生在哪一步，原因是什么？

@@ -1,7 +1,9 @@
-# Safety policy
+# 安全策略
 
-- Default to dry-run.
-- Do not store secrets, passwords, raw cookies, raw authorization headers or private keys.
-- High-risk commands require explicit confirmation.
-- A command is successful only when the business result is verified.
-- Learn mode is observation-first and should not submit destructive actions.
+- 默认使用 dry-run，不自动执行会改变业务状态的动作。
+- 不保存密码、密钥、私钥、原始 Cookie、原始 Authorization Header 或其他敏感凭据。
+- 高风险 command 必须经过显式确认后才能真实执行。
+- 删除、支付、退款、批量修改、权限变更、外部消息发送等操作视为高风险。
+- command 成功的标准是业务结果被验证，而不是单纯按钮点击成功或接口返回 200。
+- learn 模式以观察为主，除非用户明确允许测试提交，否则不应提交破坏性动作。
+- 记录登录态或 Token 时，只记录字段名、来源和用途，不落明文值。

@@ -1,10 +1,11 @@
-# Run log
+# 执行日志
 
-- command:
-- started_at:
-- mode: dry-run/api/ui
-- parameters:
-- steps:
-- result:
-- evidence:
-- notes:
+- 指令名称：
+- 开始时间：
+- 执行模式：dry-run / api / ui
+- 输入参数：
+- 执行步骤：
+- 执行结果：
+- 成功证据：
+- 失败原因：
+- 备注：
