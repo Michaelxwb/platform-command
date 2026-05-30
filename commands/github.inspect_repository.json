@@ -1,0 +1,128 @@
+{
+  "name": "github.inspect_repository",
+  "platform": "github",
+  "description": "GitHub 场景实测：根据 owner/repo 参数打开仓库页，读取公开仓库元信息，并生成 API + UI 双路径的低风险巡检计划。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-github-browser-profile",
+  "parameters": {
+    "owner": {
+      "type": "string",
+      "required": false,
+      "default": "Michaelxwb",
+      "description": "GitHub 仓库 owner。"
+    },
+    "repo": {
+      "type": "string",
+      "required": false,
+      "default": "platform-command",
+      "description": "GitHub 仓库名称。"
+    },
+    "branch": {
+      "type": "string",
+      "required": false,
+      "default": "master",
+      "description": "期望检查的默认分支。"
+    }
+  },
+  "execution": {
+    "prefer": ["workflow", "api", "ui"],
+    "workflow": {
+      "strategy": "sequential",
+      "sessionRef": "prelogged-github-browser-profile",
+      "steps": [
+        {
+          "id": "repo_api",
+          "type": "api",
+          "description": "调用 GitHub REST API 获取仓库基础信息。",
+          "request": {
+            "method": "GET",
+            "url": "https://api.github.com/repos/{{params.owner}}/{{params.repo}}",
+            "headers": {
+              "accept": "application/vnd.github+json",
+              "x-github-api-version": "2022-11-28"
+            },
+            "expect": {
+              "status": 200
+            }
+          },
+          "extract": {
+            "fullName": {
+              "from": "json",
+              "path": "$.full_name",
+              "example": "Michaelxwb/platform-command"
+            },
+            "defaultBranch": {
+              "from": "json",
+              "path": "$.default_branch",
+              "example": "master"
+            },
+            "visibility": {
+              "from": "json",
+              "path": "$.visibility",
+              "example": "public"
+            }
+          },
+          "retry": {
+            "attempts": 2,
+            "backoffMs": 500
+          },
+          "successWhen": ["status == 200", "body.full_name == params.owner + '/' + params.repo"]
+        },
+        {
+          "id": "repo_page",
+          "type": "ui",
+          "description": "打开 GitHub 仓库页面并确认页面标题/仓库名可见。",
+          "dependsOn": ["repo_api"],
+          "ui": {
+            "url": "https://github.com/{{params.owner}}/{{params.repo}}",
+            "actions": [
+              {
+                "action": "goto",
+                "target": "https://github.com/{{params.owner}}/{{params.repo}}",
+                "description": "打开仓库首页"
+              },
+              {
+                "action": "waitFor",
+                "selector": {
+                  "role": "heading",
+                  "text": "{{params.repo}}"
+                },
+                "timeoutMs": 10000,
+                "description": "等待仓库名标题出现"
+              },
+              {
+                "action": "assert",
+                "selector": {
+                  "text": "{{params.owner}}/{{params.repo}}"
+                },
+                "assertion": "repository full name visible",
+                "description": "断言仓库全名可见"
+              },
+              {
+                "action": "screenshot",
+                "target": "github-repository-page",
+                "description": "保存页面截图作为业务验证证据"
+              }
+            ]
+          },
+          "retry": {
+            "attempts": 1
+          },
+          "successWhen": ["repository page visible", "repo name matches params.repo"]
+        }
+      ]
+    }
+  },
+  "successCriteria": [
+    "GitHub API 返回 HTTP 200。",
+    "API 返回的 full_name 与 owner/repo 参数一致。",
+    "仓库页面可打开，并显示目标 repo 名称。",
+    "dry-run 输出不包含 Cookie、Authorization、password、secret 等明文。"
+  ],
+  "failureCases": [
+    "仓库不存在或不可访问。",
+    "GitHub API 限流或网络异常。",
+    "浏览器登录态失效，但公开仓库读取仍应可回退到匿名访问。",
+    "页面结构变化导致 UI 断言选择器需要重新学习。"
+  ]
+}

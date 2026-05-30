@@ -1,0 +1,86 @@
+{
+  "name": "github.list_commits",
+  "platform": "github",
+  "description": "GitHub 场景实测：读取指定公开仓库某分支的提交列表。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-github-browser-profile",
+  "parameters": {
+    "owner": {
+      "type": "string",
+      "required": false,
+      "default": "Michaelxwb",
+      "description": "仓库 owner。"
+    },
+    "repo": {
+      "type": "string",
+      "required": false,
+      "default": "platform-command",
+      "description": "仓库名。"
+    },
+    "branch": {
+      "type": "string",
+      "required": false,
+      "default": "master",
+      "description": "分支名。"
+    }
+  },
+  "execution": {
+    "prefer": [
+      "api",
+      "ui"
+    ],
+    "workflow": {
+      "version": "2.0",
+      "steps": [
+        {
+          "id": "commits_api",
+          "type": "api",
+          "description": "调用 GitHub Commits API 读取提交列表。",
+          "request": {
+            "method": "GET",
+            "url": "https://api.github.com/repos/{{params.owner}}/{{params.repo}}/commits?sha={{params.branch}}&per_page=10",
+            "headers": {
+              "Accept": "application/vnd.github+json",
+              "User-Agent": "platform-command-scene-test"
+            },
+            "successWhen": [
+              "status < 400"
+            ]
+          },
+          "extract": {
+            "firstSha": "$[0].sha",
+            "firstMessage": "$[0].commit.message"
+          }
+        },
+        {
+          "id": "commits_page",
+          "type": "ui",
+          "description": "打开仓库 commits 页面，确认提交历史可见。",
+          "ui": {
+            "actions": [
+              {
+                "action": "goto",
+                "url": "https://github.com/{{params.owner}}/{{params.repo}}/commits/{{params.branch}}"
+              },
+              {
+                "action": "assert",
+                "target": "body",
+                "contains": "Commits"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "successCriteria": [
+    "Commits API 返回 200。",
+    "至少能读取提交列表或页面可访问。",
+    "branch 参数已被带入 API/UI。"
+  ],
+  "failureCases": [
+    "分支不存在。",
+    "仓库不存在或无权限。",
+    "GitHub API 限流。"
+  ]
+}

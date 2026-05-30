@@ -1,0 +1,80 @@
+{
+  "name": "github.search_repositories",
+  "platform": "github",
+  "description": "GitHub 场景实测：按关键词搜索公开仓库，并用 API + UI 页面验证搜索结果。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-github-browser-profile",
+  "parameters": {
+    "query": {
+      "type": "string",
+      "required": false,
+      "default": "platform-command user:Michaelxwb",
+      "description": "GitHub 仓库搜索关键词。"
+    },
+    "limit": {
+      "type": "number",
+      "required": false,
+      "default": 5,
+      "description": "期望读取的最大结果数。"
+    }
+  },
+  "execution": {
+    "prefer": [
+      "api",
+      "ui"
+    ],
+    "workflow": {
+      "version": "2.0",
+      "steps": [
+        {
+          "id": "search_api",
+          "type": "api",
+          "description": "调用 GitHub Search API 搜索公开仓库。",
+          "request": {
+            "method": "GET",
+            "url": "https://api.github.com/search/repositories?q={{params.query}}&per_page={{params.limit}}",
+            "headers": {
+              "Accept": "application/vnd.github+json",
+              "User-Agent": "platform-command-scene-test"
+            },
+            "successWhen": [
+              "status < 400"
+            ]
+          },
+          "extract": {
+            "totalCount": "$.total_count",
+            "firstFullName": "$.items[0].full_name"
+          }
+        },
+        {
+          "id": "search_page",
+          "type": "ui",
+          "description": "打开 GitHub 搜索页面，确认结果页可见。",
+          "ui": {
+            "actions": [
+              {
+                "action": "goto",
+                "url": "https://github.com/search?q={{params.query}}&type=repositories"
+              },
+              {
+                "action": "assert",
+                "target": "body",
+                "contains": "Repositories"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "successCriteria": [
+    "Search API 返回 200。",
+    "total_count 为数字。",
+    "搜索页面可见且类型为 repositories。"
+  ],
+  "failureCases": [
+    "GitHub Search API 限流。",
+    "关键词没有结果。",
+    "GitHub 页面结构变化。"
+  ]
+}
