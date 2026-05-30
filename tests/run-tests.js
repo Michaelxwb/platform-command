@@ -118,6 +118,52 @@ assert.equal(externalDryJson.status, 'dry_run');
 assert.equal(externalDryJson.command, 'order.refund_preview');
 assert.equal(externalDryJson.plan.kind, 'workflow');
 
+const recipeCommandsDir = path.join(process.cwd(), '.tmp-recipe-commands');
+const recipeFile = path.join(recipeCommandsDir, 'demo.light_recipe.json');
+try {
+  fs.rmSync(recipeCommandsDir, { recursive: true, force: true });
+  fs.mkdirSync(recipeCommandsDir, { recursive: true });
+  const recipeCommand = {
+    name: 'demo.light_recipe',
+    platform: 'demo',
+    description: 'Lightweight recipe command without execution.workflow.',
+    riskLevel: 'low',
+    parameters: {
+      keyword: { type: 'string', required: true }
+    },
+    steps: [
+      {
+        id: 'search',
+        type: 'api',
+        description: 'Search {{params.keyword}}',
+        request: { method: 'GET', url: 'https://example.test/search?q={{params.keyword}}' },
+        extract: { firstId: { example: 'item-001' } }
+      },
+      {
+        id: 'open',
+        type: 'ui',
+        dependsOn: ['search'],
+        ui: { actions: [{ action: 'goto', target: 'https://example.test/items/{{steps.search.firstId}}' }] }
+      }
+    ],
+    checks: ['Search request is prepared.', 'Detail page can be opened.']
+  };
+  fs.writeFileSync(recipeFile, JSON.stringify(recipeCommand, null, 2));
+  const recipeVerify = verifyCommand('demo.light_recipe', { commandsDir: recipeCommandsDir });
+  assert.equal(recipeVerify.ok, true, recipeVerify.errors.join('\n'));
+  const recipePlan = buildWorkflowPlan(recipeVerify.command, { keyword: 'alpha' });
+  assert.equal(recipePlan.kind, 'recipe');
+  assert.deepEqual(recipePlan.checks, recipeCommand.checks);
+  assert.equal(recipePlan.steps[0].request.url, 'https://example.test/search?q=alpha');
+  assert.equal(recipePlan.steps[1].ui.actions[0].target, 'https://example.test/items/item-001');
+
+  const recipeDryJson = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--commands-dir', recipeCommandsDir, '--command', 'demo.light_recipe', '--dry-run', 'keyword=alpha'], { encoding: 'utf8' }));
+  assert.equal(recipeDryJson.plan.kind, 'recipe');
+  assert.equal(recipeDryJson.plan.checks[0], 'Search request is prepared.');
+} finally {
+  fs.rmSync(recipeCommandsDir, { recursive: true, force: true });
+}
+
 const mcpInput = [
   JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
   JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),

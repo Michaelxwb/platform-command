@@ -161,6 +161,42 @@ platform-command/
 └── tests/                           # 本地测试
 ```
 
+## 轻量 Recipe command
+
+推荐新增业务能力时优先使用轻量结构：`Command + Parameters + Steps + Checks`。框架只负责通用的参数合并、模板渲染、依赖排序、dry-run 计划和结构校验；具体业务流程直接写在 command JSON 里，不需要为每个系统新增 adapter。
+
+```json
+{
+  "name": "demo.light_recipe",
+  "platform": "demo",
+  "description": "Search then open detail page.",
+  "riskLevel": "low",
+  "parameters": {
+    "keyword": { "type": "string", "required": true }
+  },
+  "steps": [
+    {
+      "id": "search",
+      "type": "api",
+      "request": { "method": "GET", "url": "https://example.test/search?q={{params.keyword}}" },
+      "extract": { "firstId": { "example": "item-001" } }
+    },
+    {
+      "id": "open",
+      "type": "ui",
+      "dependsOn": ["search"],
+      "ui": { "actions": [{ "action": "goto", "target": "https://example.test/items/{{steps.search.firstId}}" }] }
+    }
+  ],
+  "checks": [
+    "Search request is prepared.",
+    "Detail page can be opened."
+  ]
+}
+```
+
+旧版 `execution.workflow.steps` 仍然兼容；新 command 建议优先写顶层 `steps` / `checks`，避免把简单业务流程设计成重型 workflow/adapter。
+
 ## 指令生命周期
 
 ```text

@@ -1,7 +1,7 @@
 {
   "name": "bilibili.post_comment",
   "platform": "bilibili",
-  "description": "Bilibili 视频页发布评论 workflow。可填入评论草稿；当 autoPublish=true 时自动发布，并要求捕获发布响应或通过评论列表接口闭环验收。",
+  "description": "Bilibili 视频页发布评论。可填入评论草稿；当 autoPublish=true 时自动发布，并要求捕获发布响应或通过评论列表接口闭环验收。",
   "riskLevel": "high",
   "sessionRef": "prelogged-bilibili-browser-profile",
   "parameters": {
@@ -23,149 +23,150 @@
       "description": "是否自动点击“发布”按钮。默认 false 只停留在草稿态；显式传 autoPublish=true 才表示允许自动发布。"
     }
   },
-  "execution": {
-    "prefer": [
-      "workflow"
-    ],
-    "workflow": {
-      "strategy": "sequential",
-      "sessionRef": "prelogged-bilibili-browser-profile",
-      "safety": {
-        "defaultMode": "draft",
-        "supportsAutoPublish": true,
-        "autoPublishRequiresExplicitParameter": true,
-        "autoPublishParameter": "autoPublish"
-      },
-      "learnedFrom": {
-        "url": "https://www.bilibili.com/video/BV1YNGn6CEcH/",
-        "observedAt": "2026-05-30",
-        "notes": [
-          "评论区位于 #commentapp 下的 <bili-comments> Web Components 内。",
-          "评论输入框在 shadowRoot 链路：bili-comments > bili-comments-header-renderer > bili-comment-box > bili-comment-rich-textarea .brt-editor[contenteditable=true]。",
-          "发布按钮文本为“发布”，位于 bili-comment-box shadow DOM 内；选择器使用 shadow-piercing 表达：bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> #submit 或包含文本“发布”的按钮。",
-          "当前 platform-command V2 CLI 真实执行器尚未启用；此 command 在计划层表达自动点击发布动作，需由支持 UI click 的 Agent/MCP/browser adapter 执行。",
-          "真实发布不能只以“点击发布按钮”为成功标准；必须监听 /x/v2/reply/add 响应，或发布后分页查询 /x/v2/reply/main 验证本人评论存在。",
-          "B 站发布接口返回 code=0 表示新增成功；code=12051/message=重复评论，请勿刷屏 只能作为“可能已存在”，仍需通过评论列表按 oid/commentText/当前登录用户二次确认。",
-          "评论可能不出现在当前热门首屏；验收应遍历热门/时间/默认模式的前若干页，匹配 content.message 与登录用户 mid。"
+  "strategy": "sequential",
+  "safety": {
+    "defaultMode": "draft",
+    "supportsAutoPublish": true,
+    "autoPublishRequiresExplicitParameter": true,
+    "autoPublishParameter": "autoPublish"
+  },
+  "learnedFrom": {
+    "url": "https://www.bilibili.com/video/BV1YNGn6CEcH/",
+    "observedAt": "2026-05-30",
+    "notes": [
+      "评论区位于 #commentapp 下的 <bili-comments> Web Components 内。",
+      "评论输入框在 shadowRoot 链路：bili-comments > bili-comments-header-renderer > bili-comment-box > bili-comment-rich-textarea .brt-editor[contenteditable=true]。",
+      "发布按钮文本为“发布”，位于 bili-comment-box shadow DOM 内；选择器使用 shadow-piercing 表达：bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> #submit 或包含文本“发布”的按钮。",
+      "当前 platform-command V2 CLI 真实执行器尚未启用；此 command 在计划层表达自动点击发布动作，需由支持 UI click 的 Agent/MCP/browser adapter 执行。",
+      "真实发布不能只以“点击发布按钮”为成功标准；必须监听 /x/v2/reply/add 响应，或发布后分页查询 /x/v2/reply/main 验证本人评论存在。",
+      "B 站发布接口返回 code=0 表示新增成功；code=12051/message=重复评论，请勿刷屏 只能作为“可能已存在”，仍需通过评论列表按 oid/commentText/当前登录用户二次确认。",
+      "评论可能不出现在当前热门首屏；验收应遍历热门/时间/默认模式的前若干页，匹配 content.message 与登录用户 mid。"
+    ]
+  },
+  "steps": [
+    {
+      "id": "open_video",
+      "type": "ui",
+      "description": "打开目标 B 站视频页。",
+      "ui": {
+        "url": "{{videoUrl}}",
+        "actions": [
+          {
+            "type": "goto",
+            "url": "{{videoUrl}}"
+          },
+          {
+            "type": "waitFor",
+            "target": "body",
+            "timeoutMs": 8000
+          }
         ]
       },
-      "steps": [
-        {
-          "id": "open_video",
-          "type": "ui",
-          "description": "打开目标 B 站视频页。",
-          "ui": {
-            "url": "{{videoUrl}}",
-            "actions": [
-              {
-                "type": "goto",
-                "url": "{{videoUrl}}"
-              },
-              {
-                "type": "waitFor",
-                "target": "body",
-                "timeoutMs": 8000
-              }
-            ]
+      "successWhen": "视频页面 body 已加载。"
+    },
+    {
+      "id": "locate_comment_area",
+      "type": "ui",
+      "description": "滚动到评论区，等待 Web Components 评论应用加载。",
+      "dependsOn": "open_video",
+      "ui": {
+        "actions": [
+          {
+            "type": "waitFor",
+            "target": "#commentapp, bili-comments",
+            "timeoutMs": 15000
           },
-          "successWhen": "视频页面 body 已加载。"
-        },
-        {
-          "id": "locate_comment_area",
-          "type": "ui",
-          "description": "滚动到评论区，等待 Web Components 评论应用加载。",
-          "dependsOn": "open_video",
-          "ui": {
-            "actions": [
-              {
-                "type": "waitFor",
-                "target": "#commentapp, bili-comments",
-                "timeoutMs": 15000
-              },
-              {
-                "type": "assert",
-                "target": "#commentapp, bili-comments",
-                "contains": ""
-              }
-            ]
-          },
-          "successWhen": "页面存在 #commentapp 或 bili-comments。"
-        },
-        {
-          "id": "fill_comment_draft",
-          "type": "ui",
-          "description": "在评论富文本编辑器中填入评论内容。若宿主执行器不支持 shadowRoot selector，应使用 JS/浏览器适配器穿透 shadowRoot 定位 .brt-editor[contenteditable=true]。",
-          "dependsOn": "locate_comment_area",
-          "ui": {
-            "actions": [
-              {
-                "type": "fill",
-                "selector": "bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> bili-comment-rich-textarea >>> .brt-editor[contenteditable=\"true\"]",
-                "value": "{{commentText}}"
-              },
-              {
-                "type": "assert",
-                "target": "bili-comments",
-                "contains": "发布"
-              }
-            ]
-          },
-          "successWhen": "评论内容已输入，发布按钮可见。"
-        },
-        {
-          "id": "auto_click_publish",
-          "type": "ui",
-          "description": "当 autoPublish=true 时，先挂载 /x/v2/reply/add 的 fetch/XHR 响应监听，再自动点击 B 站评论框内“发布”按钮。autoPublish=false 时跳过并保留草稿。",
-          "dependsOn": "fill_comment_draft",
-          "ui": {
-            "actions": [
-              {
-                "type": "assert",
-                "target": "bili-comments",
-                "contains": "发布",
-                "description": "确认评论组件仍可交互。"
-              },
-              {
-                "type": "assert",
-                "target": "browser-network-listener:/x/v2/reply/add",
-                "description": "执行器应在点击前开始监听 fetch/XHR 中的 /x/v2/reply/add 响应；若不支持网络监听，必须在发布后执行 verify_comment_result。"
-              },
-              {
-                "type": "click",
-                "selector": "bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> #submit, bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> #pub, bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> button:has-text(\"发布\")",
-                "description": "使用真实用户点击或等价浏览器适配器事件链触发发布。"
-              }
-            ]
-          },
-          "successWhen": "autoPublish=true 时不是“已点击”即成功；必须获得 /x/v2/reply/add code=0，或进入 verify_comment_result 证明评论已存在。autoPublish=false 时跳过该步骤并保留草稿。"
-        },
-        {
-          "id": "verify_comment_result",
-          "type": "manual",
-          "description": "发布后闭环验收：读取发布接口响应，并在必要时查询评论列表确认评论存在。",
-          "dependsOn": "auto_click_publish",
-          "manual": "执行器必须完成以下验收：1) 若捕获到 /x/v2/reply/add 返回 code=0，则记录 rpid 并判定发布成功；2) 若返回 code=12051/“重复评论，请勿刷屏”，不得直接判失败，应调用 https://api.bilibili.com/x/v2/reply/main?type=1&oid={{runtime.open_video.aid}}&mode=3/2/0&next=... 分页查询，匹配当前登录用户 mid 与 content.message === {{commentText}}；3) 若未捕获到发布响应，也执行同样分页查询；4) 只有查询不到匹配评论且无 code=0 响应时才判定发布失败。",
-          "successWhen": "以下任一条件成立：发布接口 /x/v2/reply/add 返回 code=0；或评论列表分页查询到当前登录用户在该视频下的 commentText。若只出现 code=12051 重复评论但查询不到匹配评论，应标记为未确认而不是成功。",
-          "extract": {
-            "rpid": {
-              "type": "jsonPath",
-              "path": "$.data.rpid",
-              "example": "304179621984"
-            },
-            "apiCode": {
-              "type": "jsonPath",
-              "path": "$.code",
-              "example": 0
-            },
-            "verificationMode": {
-              "type": "enum",
-              "example": "reply_add_response_or_reply_main_scan"
-            }
+          {
+            "type": "assert",
+            "target": "#commentapp, bili-comments",
+            "contains": ""
           }
+        ]
+      },
+      "successWhen": "页面存在 #commentapp 或 bili-comments。"
+    },
+    {
+      "id": "fill_comment_draft",
+      "type": "ui",
+      "description": "在评论富文本编辑器中填入评论内容。若宿主执行器不支持 shadowRoot selector，应使用 JS/浏览器适配器穿透 shadowRoot 定位 .brt-editor[contenteditable=true]。",
+      "dependsOn": "locate_comment_area",
+      "ui": {
+        "actions": [
+          {
+            "type": "fill",
+            "selector": "bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> bili-comment-rich-textarea >>> .brt-editor[contenteditable=\"true\"]",
+            "value": "{{commentText}}"
+          },
+          {
+            "type": "assert",
+            "target": "bili-comments",
+            "contains": "发布"
+          }
+        ]
+      },
+      "successWhen": "评论内容已输入，发布按钮可见。"
+    },
+    {
+      "id": "auto_click_publish",
+      "type": "ui",
+      "description": "当 autoPublish=true 时，先挂载 /x/v2/reply/add 的 fetch/XHR 响应监听，再自动点击 B 站评论框内“发布”按钮。autoPublish=false 时跳过并保留草稿。",
+      "dependsOn": "fill_comment_draft",
+      "ui": {
+        "actions": [
+          {
+            "type": "assert",
+            "target": "bili-comments",
+            "contains": "发布",
+            "description": "确认评论组件仍可交互。"
+          },
+          {
+            "type": "assert",
+            "target": "browser-network-listener:/x/v2/reply/add",
+            "description": "执行器应在点击前开始监听 fetch/XHR 中的 /x/v2/reply/add 响应；若不支持网络监听，必须在发布后执行 verify_comment_result。"
+          },
+          {
+            "type": "click",
+            "selector": "bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> #submit, bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> #pub, bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> button:has-text(\"发布\")",
+            "description": "使用真实用户点击或等价浏览器适配器事件链触发发布。"
+          }
+        ]
+      },
+      "successWhen": "autoPublish=true 时不是“已点击”即成功；必须获得 /x/v2/reply/add code=0，或进入 verify_comment_result 证明评论已存在。autoPublish=false 时跳过该步骤并保留草稿。"
+    },
+    {
+      "id": "verify_comment_result",
+      "type": "manual",
+      "description": "发布后闭环验收：读取发布接口响应，并在必要时查询评论列表确认评论存在。",
+      "dependsOn": "auto_click_publish",
+      "manual": "执行器必须完成以下验收：1) 若捕获到 /x/v2/reply/add 返回 code=0，则记录 rpid 并判定发布成功；2) 若返回 code=12051/“重复评论，请勿刷屏”，不得直接判失败，应调用 https://api.bilibili.com/x/v2/reply/main?type=1&oid={{runtime.open_video.aid}}&mode=3/2/0&next=... 分页查询，匹配当前登录用户 mid 与 content.message === {{commentText}}；3) 若未捕获到发布响应，也执行同样分页查询；4) 只有查询不到匹配评论且无 code=0 响应时才判定发布失败。",
+      "successWhen": "以下任一条件成立：发布接口 /x/v2/reply/add 返回 code=0；或评论列表分页查询到当前登录用户在该视频下的 commentText。若只出现 code=12051 重复评论但查询不到匹配评论，应标记为未确认而不是成功。",
+      "extract": {
+        "rpid": {
+          "type": "jsonPath",
+          "path": "$.data.rpid",
+          "example": "304179621984"
+        },
+        "apiCode": {
+          "type": "jsonPath",
+          "path": "$.code",
+          "example": 0
+        },
+        "verificationMode": {
+          "type": "enum",
+          "example": "reply_add_response_or_reply_main_scan"
         }
-      ]
+      }
     }
-  },
+  ],
+  "checks": [
+    "能打开指定 B 站视频页。",
+    "能定位评论区 Web Components。",
+    "能将 commentText 填入富文本评论编辑器。",
+    "当 autoPublish=true 且执行器支持真实 UI click/shadow DOM 时，能自动点击“发布”按钮。",
+    "当 autoPublish=false 时，应停留在草稿态，不点击“发布”。",
+    "当 autoPublish=true 时，发布成功必须由 /x/v2/reply/add 的 code=0 响应或评论列表接口中匹配到本人 commentText 来确认，不能只看按钮点击。",
+    "当发布接口返回“重复评论，请勿刷屏”时，应继续查询评论列表；只有查到匹配评论才可视为已存在/成功。"
+  ],
   "successCriteria": [
     "能打开指定 B 站视频页。",
     "能定位评论区 Web Components。",

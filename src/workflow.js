@@ -3,11 +3,11 @@ import { redactSensitive } from './utils.js';
 export const UI_ACTIONS = new Set(['goto', 'fill', 'click', 'select', 'waitFor', 'assert', 'screenshot']);
 
 export function buildWorkflowPlan(command, params, options = {}) {
-  const workflow = command.execution.workflow;
-  if (!workflow || !Array.isArray(workflow.steps)) return null;
+  const recipe = normalizeRecipe(command);
+  if (!recipe || !Array.isArray(recipe.steps)) return null;
   const warnings = [];
   const context = { params, steps: {}, warnings };
-  const sourceSteps = workflow.strategy === 'sequential' ? workflow.steps : sortStepsByDependency(workflow.steps, warnings);
+  const sourceSteps = recipe.strategy === 'sequential' ? recipe.steps : sortStepsByDependency(recipe.steps, warnings);
   const steps = sourceSteps.map((step, index) => {
     const normalized = normalizeStep(step, index, context);
     context.steps[normalized.id] = buildStepContext(normalized);
@@ -17,10 +17,11 @@ export function buildWorkflowPlan(command, params, options = {}) {
     throw new Error(`Unresolved template reference: ${warnings.find((item) => item.code === 'UNRESOLVED_TEMPLATE').expression}`);
   }
   return {
-    kind: 'workflow',
-    strategy: workflow.strategy || 'sequential',
-    sessionRef: workflow.sessionRef || command.sessionRef || null,
+    kind: recipe.kind,
+    strategy: recipe.strategy || 'sequential',
+    sessionRef: recipe.sessionRef || command.sessionRef || null,
     safety: {
+      ...(recipe.safety || {}),
       dryRunOnly: true,
       credentials: 'references_only',
       secretsRedacted: true
@@ -30,8 +31,42 @@ export function buildWorkflowPlan(command, params, options = {}) {
       availableStepRefs: steps.map((step) => step.id)
     },
     warnings,
-    steps
+    steps,
+    checks: renderValue(recipe.checks || [], context),
+    successCriteria: renderValue(recipe.successCriteria || [], context),
+    failureCases: renderValue(recipe.failureCases || [], context)
   };
+}
+
+export function normalizeRecipe(command) {
+  if (Array.isArray(command.steps)) {
+    return {
+      kind: 'recipe',
+      strategy: command.strategy || 'sequential',
+      sessionRef: command.sessionRef || null,
+      safety: command.safety || null,
+      learnedFrom: command.learnedFrom || null,
+      steps: command.steps,
+      checks: command.checks || command.successCriteria || [],
+      successCriteria: command.successCriteria || command.checks || [],
+      failureCases: command.failureCases || []
+    };
+  }
+  if (command.execution?.workflow) {
+    const workflow = command.execution.workflow;
+    return {
+      kind: 'workflow',
+      strategy: workflow.strategy || 'sequential',
+      sessionRef: workflow.sessionRef || command.sessionRef || null,
+      safety: workflow.safety || command.safety || null,
+      learnedFrom: workflow.learnedFrom || command.learnedFrom || null,
+      steps: workflow.steps,
+      checks: workflow.checks || command.checks || command.successCriteria || [],
+      successCriteria: command.successCriteria || workflow.checks || [],
+      failureCases: command.failureCases || []
+    };
+  }
+  return null;
 }
 
 function normalizeStep(step, index, context) {

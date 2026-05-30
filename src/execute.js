@@ -1,5 +1,5 @@
 import { loadCommand, mergeParams } from './command_store.js';
-import { buildWorkflowPlan, renderValue } from './workflow.js';
+import { buildWorkflowPlan, normalizeRecipe, renderValue } from './workflow.js';
 import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
 
@@ -24,7 +24,7 @@ export async function executeCommand(commandName, providedParams = {}, options =
 }
 
 function buildExecutionPlan(command, params, options = {}) {
-  if (command.execution?.workflow) {
+  if (normalizeRecipe(command)) {
     return buildWorkflowPlan(command, params, options);
   }
   const prefer = command.execution?.prefer || [];

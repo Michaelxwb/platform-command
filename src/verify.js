@@ -1,7 +1,7 @@
 import { loadCommand } from './command_store.js';
-import { UI_ACTIONS, findTemplateExpressions } from './workflow.js';
+import { UI_ACTIONS, findTemplateExpressions, normalizeRecipe } from './workflow.js';
 
-const REQUIRED_TOP_LEVEL = ['name', 'platform', 'description', 'riskLevel', 'parameters', 'execution', 'successCriteria'];
+const REQUIRED_TOP_LEVEL = ['name', 'platform', 'description', 'riskLevel', 'parameters'];
 const RISK_LEVELS = new Set(['low', 'medium', 'high']);
 const STEP_TYPES = new Set(['api', 'ui', 'manual']);
 const PARAM_TYPES = new Set(['string', 'number', 'boolean', 'array', 'object']);
@@ -19,10 +19,16 @@ export function verifyCommand(commandName, options = {}) {
   }
   validateParameters(command, errors);
   validateNaturalLanguage(command, errors);
-  if (!command.execution || !Array.isArray(command.execution.prefer)) {
-    errors.push('execution.prefer must be an array, e.g. ["api", "ui", "workflow"]');
+  const recipe = normalizeRecipe(command);
+  if (recipe) {
+    validateWorkflow(recipe, command, errors, recipe.kind === 'recipe' ? 'steps' : 'execution.workflow.steps');
+    if (!Array.isArray(recipe.checks)) errors.push('checks must be an array when provided');
+  } else {
+    if (!command.execution || !Array.isArray(command.execution.prefer)) {
+      errors.push('execution.prefer must be an array, e.g. ["api", "ui", "workflow"], or define top-level steps for a lightweight recipe');
+    }
+    if (command.execution?.workflow) validateWorkflow(command.execution.workflow, command, errors);
   }
-  if (command.execution?.workflow) validateWorkflow(command.execution.workflow, command, errors);
   return { ok: errors.length === 0, file, command, errors };
 }
 
@@ -118,15 +124,15 @@ function validateRegex(pattern, prefix, errors) {
   }
 }
 
-function validateWorkflow(workflow, command, errors) {
+function validateWorkflow(workflow, command, errors, stepsPath = 'execution.workflow.steps') {
   if (!Array.isArray(workflow.steps) || workflow.steps.length === 0) {
-    errors.push('execution.workflow.steps must be a non-empty array');
+    errors.push(`${stepsPath} must be a non-empty array`);
     return;
   }
   const ids = new Set();
   const stepTypes = new Map();
   workflow.steps.forEach((step, index) => {
-    const prefix = `execution.workflow.steps[${index}]`;
+    const prefix = `${stepsPath}[${index}]`;
     if (!step.id) errors.push(`${prefix}.id is required`);
     if (step.id && !STEP_ID_PATTERN.test(step.id)) errors.push(`${prefix}.id must start with a letter and contain only letters, numbers, _ or -`);
     if (step.id && ids.has(step.id)) errors.push(`${prefix}.id must be unique`);
@@ -141,7 +147,7 @@ function validateWorkflow(workflow, command, errors) {
     if (step.extract && (typeof step.extract !== 'object' || Array.isArray(step.extract))) errors.push(`${prefix}.extract must be an object`);
     validateKnownTemplates(step, command, prefix, errors);
   });
-  validateDependencies(workflow.steps, ids, errors);
+  validateDependencies(workflow.steps, ids, errors, stepsPath);
 }
 
 function validateApiStep(step, prefix, errors) {
@@ -180,13 +186,13 @@ function validateUiStep(step, prefix, errors) {
   });
 }
 
-function validateDependencies(steps, ids, errors) {
+function validateDependencies(steps, ids, errors, stepsPath = 'execution.workflow.steps') {
   const graph = new Map();
   for (const [index, step] of steps.entries()) {
     const deps = normalizeDependsOn(step.dependsOn);
     graph.set(step.id, deps);
     deps.forEach((dep) => {
-      if (!ids.has(dep)) errors.push(`execution.workflow.steps[${index}].dependsOn references unknown step: ${dep}`);
+      if (!ids.has(dep)) errors.push(`${stepsPath}[${index}].dependsOn references unknown step: ${dep}`);
     });
   }
   const visiting = new Set();
@@ -194,7 +200,7 @@ function validateDependencies(steps, ids, errors) {
   function visit(id, path = []) {
     if (!id || visited.has(id)) return;
     if (visiting.has(id)) {
-      errors.push(`execution.workflow has circular dependency: ${[...path, id].join(' -> ')}`);
+      errors.push(`workflow has circular dependency: ${[...path, id].join(' -> ')}`);
       return;
     }
     visiting.add(id);
