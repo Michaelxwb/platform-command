@@ -5,13 +5,15 @@ import { learnAction } from './learn.js';
 import { formatHumanReadable, runNaturalLanguage } from './nl.js';
 import { parseKeyValues, printJson } from './utils.js';
 import { verifyCommand } from './verify.js';
+import { runMcpServer } from './mcp_server.js';
 
 function help() {
   console.log(`platform-command
 
 Usage:
   node src/cli.js --help
-  node src/cli.js list
+  node src/cli.js list [--json]
+  node src/cli.js mcp
   node src/cli.js verify --command <name>
   node src/cli.js execute --command <name> [--dry-run] key=value ...
   node src/cli.js ask "自然语言指令" [--json] [--execute-real --confirm]
@@ -25,6 +27,7 @@ Examples:
   node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5
   node src/cli.js execute --command demo.workflow_example --execute-real --confirm keyword=abc limit=5
   node src/cli.js learn --platform demo --action inspect --url https://example.com --observe-seconds 3
+  node src/cli.js mcp
 `);
 }
 
@@ -48,7 +51,15 @@ async function main() {
   const cmd = argv[0];
   const args = parseArgs(argv.slice(1));
   if (!cmd || cmd === '--help' || cmd === 'help') return help();
-  if (cmd === 'list') return printJson({ commands: listCommands() });
+  if (cmd === 'list') {
+    const commands = listCommands({ detailed: !!args.json });
+    printJson({ commands });
+    return;
+  }
+  if (cmd === 'mcp') {
+    await runMcpServer();
+    return;
+  }
   if (cmd === 'verify') {
     if (!args.command) throw new Error('verify requires --command');
     const result = verifyCommand(args.command);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mergeParams } from '../src/command_store.js';
+import { listCommands, loadCommand, mergeParams } from '../src/command_store.js';
 import { buildWorkflowPlan } from '../src/workflow.js';
 import { verifyCommand } from '../src/verify.js';
 import { formatHumanReadable, parseNaturalLanguage } from '../src/nl.js';
@@ -66,6 +66,52 @@ assert.match(conflict.stderr, /cannot be used together/);
 const realWithoutConfirm = spawnSync('node', ['src/cli.js', 'execute', '--command', 'demo.search_example', '--execute-real', 'keyword=abc'], { encoding: 'utf8' });
 assert.notEqual(realWithoutConfirm.status, 0);
 assert.match(realWithoutConfirm.stderr, /requires --confirm/);
+
+
+
+const externalCommandsDir = path.join(process.cwd(), '.tmp-external-commands');
+const externalDemoFile = path.join(externalCommandsDir, 'demo.search_example.json');
+try {
+  fs.rmSync(externalCommandsDir, { recursive: true, force: true });
+  fs.mkdirSync(externalCommandsDir, { recursive: true });
+  const externalCommand = structuredClone(demo.command);
+  externalCommand.description = 'External override command for tests';
+  externalCommand.parameters.page.default = 9;
+  fs.writeFileSync(externalDemoFile, JSON.stringify(externalCommand, null, 2));
+
+  const oldEnv = process.env.PLATFORM_COMMANDS_DIR;
+  process.env.PLATFORM_COMMANDS_DIR = externalCommandsDir;
+  try {
+    const detailedList = listCommands({ detailed: true });
+    const listedExternal = detailedList.find((item) => item.name === 'demo.search_example');
+    assert.ok(listedExternal, 'external command should be listed');
+    assert.equal(listedExternal.source, 'external');
+    assert.equal(loadCommand('demo.search_example').source, 'external');
+    assert.equal(loadCommand('demo.search_example').command.parameters.page.default, 9);
+  } finally {
+    if (oldEnv === undefined) delete process.env.PLATFORM_COMMANDS_DIR;
+    else process.env.PLATFORM_COMMANDS_DIR = oldEnv;
+  }
+} finally {
+  fs.rmSync(externalCommandsDir, { recursive: true, force: true });
+}
+
+const listJson = JSON.parse(execFileSync('node', ['src/cli.js', 'list', '--json'], { encoding: 'utf8' }));
+assert.ok(listJson.commands.some((item) => item.name === 'demo.search_example' && item.source === 'builtin'));
+
+const mcpInput = [
+  JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+  JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+  JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'platform_command_execute', arguments: { command: 'demo.search_example', params: { keyword: 'abc' }, dryRun: true } } })
+].join('\n') + '\n';
+const mcpRun = spawnSync('node', ['src/mcp_server.js'], { input: mcpInput, encoding: 'utf8' });
+assert.equal(mcpRun.status, 0, mcpRun.stderr);
+const mcpLines = mcpRun.stdout.trim().split(/\n+/).map((line) => JSON.parse(line));
+assert.equal(mcpLines[0].result.serverInfo.name, 'platform-command');
+assert.ok(mcpLines[1].result.tools.some((tool) => tool.name === 'platform_command_list'));
+const mcpExecutePayload = JSON.parse(mcpLines[2].result.content[0].text);
+assert.equal(mcpExecutePayload.status, 'dry_run');
+assert.equal(mcpExecutePayload.params.keyword, 'abc');
 
 const workflowVerify = verifyCommand('demo.workflow_example');
 assert.equal(workflowVerify.ok, true, workflowVerify.errors.join('\n'));

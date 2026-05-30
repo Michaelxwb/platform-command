@@ -1,7 +1,7 @@
 {
   "name": "platform-command",
-  "version": "0.1.0",
-  "description": "A skill for learning platform UI actions, extracting APIs and parameters, then executing reusable commands.",
+  "version": "0.3.0",
+  "description": "MCP-first command framework for reusable platform operations with extensible JSON commands.",
   "type": "module",
   "bin": {
     "platform-command": "./src/cli.js"
@@ -11,12 +11,21 @@
     "verify:demo": "node src/cli.js verify --command demo.search_example",
     "dry-run:demo": "node src/cli.js execute --command demo.search_example --dry-run keyword=abc",
     "verify:workflow": "node src/cli.js verify --command demo.workflow_example",
-    "dry-run:workflow": "node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5"
+    "dry-run:workflow": "node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5",
+    "mcp": "node src/cli.js mcp",
+    "list": "node src/cli.js list --json"
   },
-  "keywords": ["skill", "browser-automation", "api-extraction", "playwright", "command"],
+  "keywords": [
+    "mcp",
+    "agent",
+    "command-framework",
+    "browser-automation",
+    "api-extraction",
+    "skill"
+  ],
   "author": "GenericAgent",
   "license": "MIT",
-  "dependencies": {
+  "optionalDependencies": {
     "playwright": "^1.52.0"
   }
 }

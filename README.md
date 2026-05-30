@@ -1,48 +1,151 @@
 # platform-command
 
-`platform-command` 是一个轻量级 skill 项目，用于学习平台页面上的操作流程，捕获接口与页面结构，提取可变参数，并把重复的平台操作沉淀成可复用的指令。
+`platform-command` 是一个 MCP-first 的通用平台指令框架：项目内置公共 commands，业务方可以通过外部 commands 目录补充自己的平台操作；不同 Agent 可以优先通过 MCP 调用，也可以退回 CLI 直接执行。
 
-它的目标不是构建一个庞大的自动化平台，而是尽量复用当前 agent 已具备的浏览器控制、网络监听、文件读写和验证能力，让 agent 能够在真实平台上逐步学习并形成稳定指令。
+V3 的核心目标不是绑定某一个 Agent 的 skill 标准，而是提供一层稳定的“平台操作协议”：
+
+- **MCP 接入**：Claude Code、Codex、OpenClaw、Hermes Agent 等只要支持 MCP，就可以接入同一套 tools。
+- **CLI 兜底**：不支持 MCP 的环境，仍可用 `node src/cli.js ...`。
+- **公共 commands + 业务 commands**：仓库自带公共指令；业务项目通过外部目录扩展，不必改框架源码。
+- **learn 可选浏览器能力**：`learn` 需要浏览器观察能力；Playwright 作为可选兜底依赖，不再是执行普通 commands 的硬前置。
 
 ## 快速开始
 
 ```bash
 npm install
+npm test
 node src/cli.js --help
+node src/cli.js list --json
 node src/cli.js verify --command demo.search_example
 node src/cli.js execute --command demo.search_example --dry-run keyword=abc
-npm test
 ```
+
+## MCP 使用
+
+启动 MCP stdio server：
+
+```bash
+node src/cli.js mcp
+# 或
+npm run mcp
+```
+
+MCP server 当前提供 4 个 tools：
+
+| Tool | 作用 |
+| --- | --- |
+| `platform_command_list` | 列出可用 commands |
+| `platform_command_describe` | 查看单个 command 定义、参数和风险等级 |
+| `platform_command_verify` | 校验 command / workflow 结构 |
+| `platform_command_execute` | 执行 command；默认 dry-run |
+
+典型 Agent MCP 配置示例：
+
+```json
+{
+  "mcpServers": {
+    "platform-command": {
+      "command": "node",
+      "args": ["/path/to/platform-command/src/cli.js", "mcp"],
+      "env": {
+        "PLATFORM_COMMANDS_DIR": "/path/to/my-business-commands"
+      }
+    }
+  }
+}
+```
+
+> 路径请替换为实际安装目录。业务 commands 可以通过 `PLATFORM_COMMANDS_DIR` 注入。
+
+## 外部 commands 扩展
+
+默认会加载仓库内置目录：
+
+```text
+commands/*.json
+```
+
+业务方可以把自己的命令放到单独目录，例如：
+
+```text
+my-business-commands/
+├── crm.search_customer.json
+└── order.refund_preview.json
+```
+
+使用方式：
+
+```bash
+PLATFORM_COMMANDS_DIR=/path/to/my-business-commands node src/cli.js list --json
+PLATFORM_COMMANDS_DIR=/path/to/my-business-commands node src/cli.js verify --command crm.search_customer
+PLATFORM_COMMANDS_DIR=/path/to/my-business-commands node src/cli.js execute --command crm.search_customer --dry-run keyword=alice
+```
+
+CLI 也支持显式参数：
+
+```bash
+node src/cli.js execute --commands-dir /path/to/my-business-commands --command crm.search_customer --dry-run keyword=alice
+```
+
+加载规则：
+
+1. 内置 commands 始终可用。
+2. 外部 commands 通过 `PLATFORM_COMMANDS_DIR` 或 `--commands-dir` 添加。
+3. 同名 command 优先使用外部目录，便于业务方覆盖公共 command。
+4. command 文件名格式为 `<command-name>.json`。
+
+## learn 与浏览器依赖
+
+普通 list / verify / execute dry-run 不需要 Playwright 浏览器。
+
+`learn` 用于观察页面、捕获 DOM 摘要、网络请求与用户操作轨迹，因此需要浏览器能力。V3 第一阶段保留 Playwright 作为可选兜底：
+
+```bash
+npm install
+npx playwright install chromium
+node src/cli.js learn --platform demo --action inspect_example --url https://example.com --observe-seconds 5
+```
+
+如果运行环境没有安装 Playwright，只有调用 `learn` 时才会报出安装提示；其他 MCP/CLI command 能力不受影响。
+
+learn 产物会写入：
+
+```text
+runs/<时间>_<平台>_<动作>/learn_report.json
+```
+
+报告默认不会保存密钥、明文 Cookie 或 Authorization 明文。
 
 ## 目录结构
 
 ```text
 platform-command/
-├── SKILL.md                         # skill 能力说明
+├── SKILL.md                         # skill-style 能力说明，保留给支持 skill 的 Agent
 ├── README.md                        # 项目说明
 ├── package.json                     # Node.js 项目配置
-├── src/                             # CLI 与核心逻辑
-│   ├── cli.js                       # 命令行入口
-│   ├── command_store.js             # command 读取与列表
+├── src/
+│   ├── cli.js                       # CLI 入口，包含 mcp 子命令
+│   ├── mcp_server.js                # MCP stdio server
+│   ├── command_store.js             # 内置/外部 command 读取、列表、参数合并
 │   ├── execute.js                   # 指令执行 / workflow dry-run
-│   ├── learn.js                     # 浏览器页面学习、DOM 摘要、请求捕获、操作轨迹
-│   ├── workflow.js                  # V2 多步骤 API/UI workflow 计划生成
+│   ├── learn.js                     # 浏览器页面学习；Playwright 动态可选导入
+│   ├── workflow.js                  # 多步骤 API/UI workflow 计划生成
 │   ├── session.js                   # 安全会话引用说明
 │   ├── utils.js                     # 通用工具函数
 │   └── verify.js                    # command / workflow 结构校验
-├── commands/                        # 已学习或手工整理的指令
+├── commands/                        # 公共内置 commands
 ├── platforms/                       # 平台资料与约束
 ├── runs/                            # learn 执行产物
 ├── templates/                       # 模板文件
 ├── examples/                        # 使用示例
-├── docs/                            # 安全文档等说明
+├── docs/                            # 文档
 └── tests/                           # 本地测试
 ```
 
 ## 指令生命周期
 
 ```text
-学习页面流程 → 提取接口/参数 → 生成 command → dry-run → 执行 → 验证业务结果 → 平台变化后更新
+学习页面流程 → 提取接口/参数 → 生成 command → verify → dry-run → 执行 → 验证业务结果 → 平台变化后更新
 ```
 
 ## 执行示例
@@ -53,44 +156,25 @@ platform-command/
 node src/cli.js execute --command demo.search_example --dry-run keyword=abc page=1
 ```
 
-V2 多接口 + UI workflow 指令：
+多步骤 workflow 指令：
 
 ```bash
 node src/cli.js verify --command demo.workflow_example
 node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5
 ```
 
-默认推荐先使用 `--dry-run`，确认参数、执行路径、步骤依赖、会话引用和风险等级后，再考虑真实执行。V2 当前只启用结构化 dry-run，不直接做真实变更。
+默认推荐先使用 `--dry-run`，确认参数、执行路径、步骤依赖、会话引用和风险等级后，再考虑真实执行。V3 第一阶段仍以结构化 dry-run 和协议接入为主，不做真实 UI 变更执行。
 
-## 学习示例
+## 当前 V3 第一阶段能力
 
-```bash
-node src/cli.js learn --platform demo --action inspect_example --url https://example.com --observe-seconds 5
-```
-
-执行后会在 `runs/` 目录下生成带时间戳的学习报告，例如：
-
-```text
-runs/<时间>_<平台>_<动作>/learn_report.json
-```
-
-报告中会记录页面标题、访问地址、DOM 摘要、候选参数、捕获到的请求元信息、响应元信息和用户操作轨迹。默认不会保存密钥、明文 Cookie 或 Authorization 明文。
-
-## V2 当前能力
-
-当前 V2 提供：
-
-- skill 项目骨架与 CLI 入口；
-- 浏览器辅助 learn：打开页面、记录 DOM 摘要、输入框/按钮/链接/表单、网络请求/响应元信息、基础操作轨迹；
-- 自动生成候选参数与 suggestedWorkflow 草案；
-- 多步骤 workflow command：支持 api / ui / manual step、dependsOn、retry、extract、successWhen；
-- UI workflow dry-run 动作：goto、fill、click、select、waitFor、assert、screenshot；
-- sessionRef 安全会话引用：只记录“使用哪个浏览器 profile/安全存储引用”，不保存 Cookie、Authorization、密码、密钥明文；
-- command 模板与 V2 示例 command；
+- MCP stdio server 基座；
+- CLI `mcp` 子命令；
+- 内置 commands + 外部 commands 目录；
+- `PLATFORM_COMMANDS_DIR` 与 `--commands-dir`；
 - command / workflow 结构校验；
-- 本地测试与 dry-run 验收。
-
-真实平台的稳定指令需要在访问具体平台并观察实际操作后生成，并通过业务结果验证持续校准。
+- execute dry-run；
+- learn Playwright 可选化；
+- MCP/CLI/外部 commands 自动化测试。
 
 ## 安全原则
 

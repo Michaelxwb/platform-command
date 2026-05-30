@@ -4,24 +4,70 @@ import { ROOT, readJson } from './utils.js';
 
 export const PARAM_TYPES = new Set(['string', 'number', 'boolean', 'array', 'object']);
 
-export function commandPath(commandName) {
-  const safe = commandName.replace(/[^a-zA-Z0-9_.-]/g, '');
+export function builtinCommandsDir() {
+  return path.join(ROOT, 'commands');
+}
+
+export function externalCommandsDirs(options = {}) {
+  const dirs = [];
+  const explicit = options.commandsDir || process.env.PLATFORM_COMMANDS_DIR;
+  if (explicit) dirs.push(...String(explicit).split(path.delimiter));
+  const cwdCommands = path.join(process.cwd(), 'commands');
+  if (cwdCommands !== builtinCommandsDir()) dirs.push(cwdCommands);
+  return dirs.filter(Boolean).map((dir) => path.resolve(dir));
+}
+
+export function commandSearchDirs(options = {}) {
+  const seen = new Set();
+  const dirs = [...externalCommandsDirs(options), builtinCommandsDir()];
+  return dirs.filter((dir) => {
+    const resolved = path.resolve(dir);
+    if (seen.has(resolved)) return false;
+    seen.add(resolved);
+    return true;
+  });
+}
+
+export function assertCommandName(commandName) {
+  const safe = String(commandName || '').replace(/[^a-zA-Z0-9_.-]/g, '');
   if (!safe || safe !== commandName) throw new Error(`Invalid command name: ${commandName}`);
-  return path.join(ROOT, 'commands', `${safe}.json`);
+  return safe;
 }
 
-export function loadCommand(commandName) {
-  const file = commandPath(commandName);
-  if (!fs.existsSync(file)) throw new Error(`Command not found: ${commandName} (${file})`);
-  return { file, command: readJson(file) };
+export function commandPath(commandName, options = {}) {
+  const safe = assertCommandName(commandName);
+  for (const dir of commandSearchDirs(options)) {
+    const file = path.join(dir, `${safe}.json`);
+    if (fs.existsSync(file)) return file;
+  }
+  return path.join(builtinCommandsDir(), `${safe}.json`);
 }
 
-export function listCommands() {
-  const dir = path.join(ROOT, 'commands');
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir)
-    .filter((name) => name.endsWith('.json'))
-    .map((name) => name.replace(/\.json$/, ''));
+export function loadCommand(commandName, options = {}) {
+  const file = commandPath(commandName, options);
+  if (!fs.existsSync(file)) throw new Error(`Command not found: ${commandName} (searched: ${commandSearchDirs(options).join(', ')})`);
+  return { file, source: sourceForFile(file), command: readJson(file) };
+}
+
+export function listCommands(options = {}) {
+  const found = new Map();
+  for (const dir of commandSearchDirs(options)) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const command = name.replace(/\.json$/, '');
+      if (!found.has(command)) {
+        const file = path.join(dir, name);
+        found.set(command, options.detailed ? { name: command, file, source: sourceForFile(file) } : command);
+      }
+    }
+  }
+  return Array.from(found.values()).sort((a, b) => String(a.name || a).localeCompare(String(b.name || b)));
+}
+
+function sourceForFile(file) {
+  const resolved = path.resolve(file);
+  return resolved.startsWith(path.resolve(builtinCommandsDir()) + path.sep) ? 'builtin' : 'external';
 }
 
 export function mergeParams(command, provided = {}) {

@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { chromium } from 'playwright';
 import { ROOT, maskHeaders, timestamp, writeJson, redactSensitive } from './utils.js';
 
 export async function learnAction(options) {
@@ -8,6 +7,7 @@ export async function learnAction(options) {
   const action = options.action || 'inspect';
   const observeSeconds = Number(options.observeSeconds || 8);
   const runDir = path.join(ROOT, 'runs', `${timestamp()}_${platform}_${action}`);
+  const { chromium } = await loadPlaywright();
   const browser = await chromium.launch({ headless: options.headless !== false });
   const page = await browser.newPage();
   const requests = [];
@@ -118,4 +118,16 @@ function buildSuggestions({ platform, action, domSummary, requests }) {
       ]
     }
   };
+}
+
+
+async function loadPlaywright() {
+  try {
+    return await import('playwright');
+  } catch (error) {
+    const hint = 'learn provider playwright is optional. Install it with: npm install playwright && npx playwright install chromium';
+    const wrapped = new Error(`${hint}. Original error: ${error.message}`);
+    wrapped.cause = error;
+    throw wrapped;
+  }
 }
