@@ -1,0 +1,186 @@
+{
+  "name": "demo.workflow_example",
+  "platform": "demo",
+  "description": "V2 示例：用多个 API/UI 步骤组合完成搜索、详情查看与审计记录动作。默认只输出 dry-run workflow 计划。",
+  "riskLevel": "low",
+  "sessionRef": "default-browser-profile",
+  "parameters": {
+    "keyword": {
+      "type": "string",
+      "required": true,
+      "description": "搜索关键词。"
+    },
+    "page": {
+      "type": "number",
+      "required": false,
+      "default": 1,
+      "description": "搜索页码。"
+    },
+    "limit": {
+      "type": "number",
+      "required": false,
+      "default": 5,
+      "description": "返回条数上限。"
+    }
+  },
+  "execution": {
+    "prefer": ["workflow", "api", "ui"],
+    "workflow": {
+      "strategy": "sequential",
+      "sessionRef": "default-browser-profile",
+      "steps": [
+        {
+          "id": "search",
+          "type": "api",
+          "description": "调用搜索接口获取列表。",
+          "request": {
+            "method": "GET",
+            "url": "https://example.com/api/search",
+            "query": {
+              "q": "{{params.keyword}}",
+              "page": "{{params.page}}",
+              "limit": "{{params.limit}}"
+            },
+            "headers": {
+              "accept": "application/json"
+            },
+            "expect": {
+              "status": 200
+            }
+          },
+          "extract": {
+            "firstItemId": {
+              "from": "json",
+              "path": "$.items[0].id",
+              "example": "demo-item-001"
+            },
+            "total": {
+              "from": "json",
+              "path": "$.total",
+              "example": 12
+            }
+          },
+          "retry": {
+            "attempts": 2,
+            "backoffMs": 300
+          },
+          "successWhen": ["status == 200", "body.items.length > 0"]
+        },
+        {
+          "id": "detail",
+          "type": "api",
+          "description": "使用 search 步骤提取的 firstItemId 获取详情。",
+          "dependsOn": ["search"],
+          "request": {
+            "method": "GET",
+            "url": "https://example.com/api/items/{{steps.search.firstItemId}}",
+            "headers": {
+              "accept": "application/json"
+            },
+            "expect": {
+              "status": 200
+            }
+          },
+          "extract": {
+            "title": {
+              "from": "json",
+              "path": "$.title",
+              "example": "abc demo title"
+            },
+            "owner": {
+              "from": "json",
+              "path": "$.owner",
+              "example": "demo-owner"
+            }
+          },
+          "retry": {
+            "attempts": 2,
+            "backoffMs": 300
+          },
+          "successWhen": ["status == 200", "body.id == steps.search.firstItemId"]
+        },
+        {
+          "id": "open_detail_page",
+          "type": "ui",
+          "description": "用浏览器打开详情页并断言标题包含关键词。",
+          "dependsOn": ["detail"],
+          "ui": {
+            "url": "https://example.com/items/{{steps.search.firstItemId}}",
+            "sessionRef": "default-browser-profile",
+            "actions": [
+              {
+                "action": "goto",
+                "target": "https://example.com/items/{{steps.search.firstItemId}}",
+                "description": "打开详情页"
+              },
+              {
+                "action": "waitFor",
+                "selector": {
+                  "role": "heading",
+                  "text": "{{steps.detail.title}}"
+                },
+                "timeoutMs": 8000,
+                "description": "等待详情标题出现"
+              },
+              {
+                "action": "assert",
+                "selector": {
+                  "role": "heading"
+                },
+                "assertion": "text contains {{params.keyword}}",
+                "description": "断言标题包含关键词"
+              },
+              {
+                "action": "screenshot",
+                "target": "detail-page",
+                "description": "保存详情页截图证据"
+              }
+            ]
+          },
+          "retry": {
+            "attempts": 1
+          },
+          "successWhen": ["heading visible", "heading text contains params.keyword"]
+        },
+        {
+          "id": "audit_log",
+          "type": "api",
+          "description": "记录一次低风险审计日志；真实执行仍需额外确认。",
+          "dependsOn": ["search", "detail", "open_detail_page"],
+          "request": {
+            "method": "POST",
+            "url": "https://example.com/api/audit-log",
+            "headers": {
+              "content-type": "application/json"
+            },
+            "body": {
+              "action": "search_detail_demo",
+              "keyword": "{{params.keyword}}",
+              "itemId": "{{steps.search.firstItemId}}",
+              "title": "{{steps.detail.title}}",
+              "total": "{{steps.search.total}}"
+            },
+            "expect": {
+              "status": 201
+            }
+          },
+          "retry": {
+            "attempts": 1
+          },
+          "successWhen": ["status == 201"]
+        }
+      ]
+    }
+  },
+  "successCriteria": [
+    "搜索接口返回结果列表。",
+    "详情接口中的 id 与搜索提取的 firstItemId 一致。",
+    "详情页标题可见且包含关键词。",
+    "dry-run 计划不包含 Cookie、Authorization、password、secret 等明文。"
+  ],
+  "failureCases": [
+    "登录态失效，需要用户先在浏览器完成登录。",
+    "搜索结果为空。",
+    "平台接口或页面结构变化。"
+  ]
+}

@@ -29,7 +29,7 @@ learn 模式应该完成：
 - 捕获网络请求与响应元信息；
 - 识别表单、按钮、输入框、表格、成功提示、错误提示；
 - 在 `runs/` 目录下写入学习报告；
-- 在后续版本中可进一步生成 command 草稿。
+- 生成候选参数和 suggestedWorkflow 草案，供后续整理成 command。
 
 安全要求：learn 模式以观察为先。除非用户明确允许测试提交，否则不能主动执行破坏性提交。
 
@@ -37,7 +37,7 @@ learn 模式应该完成：
 
 从一次 learn 结果中提取并总结候选接口。
 
-当前版本会把捕获到的请求元信息保存到学习报告中。后续版本可以进一步把稳定接口提升为 command 模板中的执行步骤。
+当前版本会把捕获到的请求元信息、响应元信息和候选 API 步骤保存到学习报告中。稳定接口可以提升为 command 模板中的 api step，并通过 dependsOn / extract 串联多个接口。
 
 ### 3. generate_command：生成指令
 
@@ -50,6 +50,9 @@ learn 模式应该完成：
 - 风险等级；
 - 参数、默认值和校验提示；
 - 推荐执行路径：优先 API，必要时 UI 回退；
+- 多步骤 workflow：api / ui / manual step、dependsOn、retry、extract、successWhen；
+- UI 动作序列：goto、fill、click、select、waitFor、assert、screenshot；
+- sessionRef：只保存浏览器 profile 或安全凭据引用，不保存密钥明文；
 - 成功标准；
 - 常见失败场景。
 
@@ -65,7 +68,9 @@ node src/cli.js execute --command demo.search_example --dry-run keyword=abc
 
 - dry-run 是安全模式，只输出执行计划，不做真实变更；
 - 当 API 元信息完整时，优先使用 API 执行；
-- API 不可用或风险较高时，可回退到 UI 执行；
+- 多个接口可按 workflow 顺序组合，后续步骤可引用前序步骤 extract 的结果；
+- API 不可用或风险较高时，可回退到 UI workflow；
+- V2 当前实现只输出结构化 dry-run 计划，真实执行引擎默认关闭；
 - 高风险 command 必须显式确认后才能真实执行。
 
 ### 5. verify：验证指令
@@ -82,7 +87,9 @@ verify 至少应检查：
 - 参数定义是否合理；
 - 风险等级是否声明；
 - 执行计划是否存在；
-- 成功标准是否存在。
+- 成功标准是否存在；
+- workflow 步骤 id 是否唯一，api step 是否有 request，ui step 是否有动作序列；
+- UI 动作是否属于支持集合。
 
 ## 安全规则
 

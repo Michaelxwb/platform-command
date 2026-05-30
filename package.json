@@ -9,7 +9,9 @@
   "scripts": {
     "test": "node tests/run-tests.js",
     "verify:demo": "node src/cli.js verify --command demo.search_example",
-    "dry-run:demo": "node src/cli.js execute --command demo.search_example --dry-run keyword=abc"
+    "dry-run:demo": "node src/cli.js execute --command demo.search_example --dry-run keyword=abc",
+    "verify:workflow": "node src/cli.js verify --command demo.workflow_example",
+    "dry-run:workflow": "node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5"
   },
   "keywords": ["skill", "browser-automation", "api-extraction", "playwright", "command"],
   "author": "GenericAgent",

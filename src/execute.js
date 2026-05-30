@@ -1,57 +1,49 @@
 import { loadCommand, mergeParams } from './command_store.js';
+import { buildWorkflowPlan, renderValue } from './workflow.js';
+import { describeSessionRef } from './session.js';
+import { redactSensitive } from './utils.js';
 
 export async function executeCommand(commandName, providedParams = {}, options = {}) {
   const { file, command } = loadCommand(commandName);
   const params = mergeParams(command, providedParams);
   const dryRun = options.dryRun !== false;
   const plan = buildExecutionPlan(command, params);
-
-  if (command.riskLevel === 'high' && !options.confirm) {
+  if (dryRun) {
     return {
-      status: dryRun ? 'dry_run' : 'blocked',
-      reason: 'High-risk command requires explicit confirmation.',
-      command: commandName,
+      status: 'dry_run',
       file,
-      params,
+      command: command.name,
+      riskLevel: command.riskLevel,
+      params: redactSensitive(params),
+      session: describeSessionRef(plan.sessionRef || command.sessionRef),
       plan
     };
   }
-
-  if (dryRun) {
-    return { status: 'dry_run', command: commandName, file, params, plan };
-  }
-
-  return {
-    status: 'not_implemented',
-    command: commandName,
-    file,
-    params,
-    plan,
-    message: 'Real API/UI execution is intentionally disabled in V1 unless a concrete platform command is learned and confirmed.'
-  };
+  if (!options.confirm) throw new Error('Real execution is disabled unless --confirm is provided. High-risk steps may require additional confirmation.');
+  throw new Error('Real execution engine is not enabled in V2; use dry-run workflow plans first.');
 }
 
-export function buildExecutionPlan(command, params) {
-  const prefer = command.execution?.prefer || ['api', 'ui'];
+function buildExecutionPlan(command, params) {
+  if (command.execution?.workflow) {
+    return buildWorkflowPlan(command, params);
+  }
+  const prefer = command.execution?.prefer || [];
   const steps = [];
-  for (const mode of prefer) {
-    if (mode === 'api' && command.execution?.api) {
-      steps.push({ mode: 'api', request: renderApi(command.execution.api, params) });
-    }
-    if (mode === 'ui' && command.execution?.ui) {
-      steps.push({ mode: 'ui', steps: command.execution.ui.steps || [] });
-    }
+  if (prefer.includes('api') && command.execution.api) {
+    steps.push({ type: 'api', request: renderValue(command.execution.api, { params, steps: {} }) });
+  }
+  if (prefer.includes('ui') && command.execution.ui) {
+    steps.push({ type: 'ui', ui: renderLegacyUi(command.execution.ui, params) });
   }
   return {
+    kind: 'legacy',
     preferredModes: prefer,
-    steps,
+    steps: redactSensitive(steps),
     successCriteria: command.successCriteria,
     failureCases: command.failureCases || []
   };
 }
 
-function renderApi(api, params) {
-  const asString = JSON.stringify(api);
-  const rendered = asString.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => String(params[key] ?? ''));
-  return JSON.parse(rendered);
+function renderLegacyUi(ui, params) {
+  return renderValue(ui, { params, steps: {} });
 }

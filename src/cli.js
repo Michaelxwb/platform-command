@@ -18,6 +18,7 @@ Usage:
 Examples:
   node src/cli.js verify --command demo.search_example
   node src/cli.js execute --command demo.search_example --dry-run keyword=abc
+  node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5
   node src/cli.js learn --platform demo --action inspect --url https://example.com --observe-seconds 3
 `);
 }
@@ -28,7 +29,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg.startsWith('--')) {
       const key = arg.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-      if (['dryRun', 'confirm', 'headed'].includes(key)) out[key] = true;
+      if (['dryRun', 'confirm', 'headed', 'executeReal'].includes(key)) out[key] = true;
       else out[key] = argv[++i];
     } else {
       out._.push(arg);
@@ -53,7 +54,7 @@ async function main() {
   if (cmd === 'execute') {
     if (!args.command) throw new Error('execute requires --command');
     const params = parseKeyValues(args._);
-    const result = await executeCommand(args.command, params, { dryRun: args.dryRun !== false, confirm: !!args.confirm });
+    const result = await executeCommand(args.command, params, { dryRun: !args.executeReal, confirm: !!args.confirm });
     printJson(result);
     return;
   }

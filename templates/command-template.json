@@ -1,17 +1,67 @@
 {
   "name": "platform.action_name",
   "platform": "platform",
-  "description": "What business result this command achieves.",
+  "description": "这个 command 要达成的业务结果。",
   "riskLevel": "low",
+  "sessionRef": "default-browser-profile",
   "parameters": {
     "field": {
       "type": "string",
       "required": true,
-      "description": "User-facing business parameter."
+      "description": "面向用户的业务参数。"
     }
   },
   "execution": {
-    "prefer": ["api", "ui"],
+    "prefer": ["workflow", "api", "ui"],
+    "workflow": {
+      "strategy": "sequential",
+      "sessionRef": "default-browser-profile",
+      "steps": [
+        {
+          "id": "step_api",
+          "type": "api",
+          "description": "接口步骤示例。",
+          "request": {
+            "method": "POST",
+            "url": "https://platform.example/api/action",
+            "headers": {
+              "content-type": "application/json"
+            },
+            "body": {
+              "field": "{{params.field}}"
+            }
+          },
+          "extract": {
+            "businessId": {
+              "from": "json",
+              "path": "$.id"
+            }
+          },
+          "retry": {
+            "attempts": 2,
+            "backoffMs": 500
+          },
+          "successWhen": ["status < 400"]
+        },
+        {
+          "id": "step_ui_verify",
+          "type": "ui",
+          "description": "浏览器 UI 验证步骤示例；默认只输出 dry-run 计划。",
+          "dependsOn": ["step_api"],
+          "ui": {
+            "url": "https://platform.example/page/{{steps.step_api.businessId}}",
+            "sessionRef": "default-browser-profile",
+            "actions": [
+              { "action": "goto", "target": "https://platform.example/page/{{steps.step_api.businessId}}" },
+              { "action": "waitFor", "selector": { "role": "heading" }, "timeoutMs": 8000 },
+              { "action": "assert", "selector": { "role": "heading" }, "assertion": "visible" },
+              { "action": "screenshot", "target": "business-result" }
+            ]
+          },
+          "successWhen": ["business result visible"]
+        }
+      ]
+    },
     "api": {
       "method": "POST",
       "url": "https://platform.example/api/action",
@@ -23,6 +73,6 @@
       "steps": []
     }
   },
-  "successCriteria": ["Business result is verified."],
-  "failureCases": []
+  "successCriteria": ["业务结果已被验证。"],
+  "failureCases": ["登录态失效", "平台页面或接口变更"]
 }

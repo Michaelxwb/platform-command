@@ -49,6 +49,23 @@ export function maskHeaders(headers = {}) {
   return result;
 }
 
+export function redactSensitive(value) {
+  if (Array.isArray(value)) return value.map((item) => redactSensitive(item));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (/authorization|cookie|password|passwd|token|secret|private[_-]?key|api[_-]?key/i.test(key)) {
+        out[key] = '[REDACTED]';
+      } else {
+        out[key] = redactSensitive(item);
+      }
+    }
+    return out;
+  }
+  if (typeof value === 'string' && /^(Bearer\s+|eyJ[a-zA-Z0-9_-]+\.|[A-Za-z0-9+/=]{40,})/.test(value)) return '[REDACTED]';
+  return value;
+}
+
 export function printJson(data) {
   console.log(JSON.stringify(data, null, 2));
 }
