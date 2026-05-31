@@ -1,4 +1,5 @@
-import { commandResourceRoot, loadCommand, mergeParams } from './command_store.js';
+import { commandResourceRoot, loadCommand } from './command_store.js';
+import { resolveCommandParams } from './params_resolver.js';
 import { buildWorkflowPlan, normalizeRecipe, renderValue } from './workflow.js';
 import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
@@ -6,7 +7,7 @@ import { executeAutoCapability, hasAutoCapability } from './capabilities.js';
 
 export async function executeCommand(commandName, providedParams = {}, options = {}) {
   const { file, command } = loadCommand(commandName, { commandsDir: options.commandsDir });
-  const params = mergeParams(command, providedParams);
+  const { params, meta: paramsMeta } = resolveCommandParams(command, providedParams);
   const dryRun = options.dryRun !== false;
   const plan = buildExecutionPlan(command, params, { failOnUnresolvedTemplates: options.dryRun === false });
   if (dryRun) {
@@ -16,12 +17,13 @@ export async function executeCommand(commandName, providedParams = {}, options =
       command: command.name,
       riskLevel: command.riskLevel,
       params: redactSensitive(params),
+      paramsMeta: redactSensitive(paramsMeta),
       session: describeSessionRef(plan.sessionRef || command.sessionRef),
       plan
     };
   }
   if (!options.confirm) throw new Error('Real execution is disabled unless --confirm is provided. High-risk steps may require additional confirmation.');
-  if (hasAutoCapability(command)) return executeAutoCapability(command, params, { commandDir: commandResourceRoot(file) });
+  if (hasAutoCapability(command)) return executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
   throw new Error('Real execution engine is not enabled in V2; use dry-run workflow plans first.');
 }
 

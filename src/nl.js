@@ -88,41 +88,38 @@ function extractParams(text, command) {
     const value = extractValue(text, rule);
     if (value !== undefined && value !== '') params[name] = value;
   }
-  for (const [name, spec] of Object.entries(command.parameters || {})) {
-    if (!(name in params) && Object.prototype.hasOwnProperty.call(spec, 'default')) params[name] = spec.default;
-  }
   return params;
 }
 
 function extractValue(text, rule = {}) {
   if (rule.type === 'enum') {
     const raw = regexGroup(text, rule.pattern, rule.group || 1);
-    if (!raw) return rule.default;
+    if (!raw) return undefined;
     return rule.map?.[raw] || rule.map?.[raw.toLowerCase()] || raw;
   }
   if (rule.type === 'regex') {
     return regexGroup(text, rule.pattern, rule.group || 1)
       || regexGroup(text, rule.fallbackPattern, 1)
-      || rule.default;
+      || undefined;
   }
   if (rule.type === 'number') {
     const raw = regexGroup(text, rule.pattern, rule.group || 1);
-    return raw ? Number(raw) : rule.default;
+    return raw ? Number(raw) : undefined;
   }
   if (rule.type === 'url') {
     const raw = regexGroup(text, rule.pattern, 0);
-    return raw || rule.default;
+    return raw || undefined;
   }
   if (rule.type === 'after') {
     const quoted = text.match(/[“\"]([^”\"]+)[”\"]/);
     let raw = quoted?.[1]?.trim() || regexGroup(text, rule.pattern, rule.group || 1);
     raw = cleanupText(raw || '', rule.cleanup);
-    return raw || rule.default;
+    return raw || undefined;
   }
   if (rule.type === 'booleanKeyword') {
     if (containsAny(text, rule.false || [])) return false;
     if (containsAny(text, rule.true || [])) return true;
-    return rule.default;
+    return undefined;
   }
   return undefined;
 }

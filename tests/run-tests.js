@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { listCommands, loadCommand, mergeParams } from '../src/command_store.js';
+import { resolveCommandParams } from '../src/params_resolver.js';
 import { buildWorkflowPlan } from '../src/workflow.js';
 import { verifyCommand } from '../src/verify.js';
 import { formatHumanReadable, parseNaturalLanguage } from '../src/nl.js';
@@ -29,7 +30,7 @@ assert.equal(nlSearch.params.limit, 3);
 
 const nlInspect = parseNaturalLanguage('巡检 GitHub 仓库 Michaelxwb/platform-command');
 assert.equal(nlInspect.command, 'github.inspect_repository');
-assert.deepEqual(nlInspect.params, { owner: 'Michaelxwb', repo: 'platform-command', branch: 'master' });
+assert.deepEqual(nlInspect.params, { owner: 'Michaelxwb', repo: 'platform-command' });
 
 const nlBilibili = parseNaturalLanguage('给 bilibili 视频 https://www.bilibili.com/video/BV1YNGn6CEcH 评论：测试评论，并自动发布');
 assert.equal(nlBilibili.command, 'bilibili.post_comment');
@@ -37,7 +38,7 @@ assert.deepEqual(nlBilibili.params, { videoUrl: 'https://www.bilibili.com/video/
 
 const nlBilibiliExport = parseNaturalLanguage('获取 bilibili 视频 https://www.bilibili.com/video/BV1rPDkB7ESC/ 前50评论数据，输出到 runs/comments.xlsx');
 assert.equal(nlBilibiliExport.command, 'bilibili.export_comments');
-assert.deepEqual(nlBilibiliExport.params, { bvid: 'BV1rPDkB7ESC', limit: 50, outputPath: 'runs/comments.xlsx', mode: 3 });
+assert.deepEqual(nlBilibiliExport.params, { bvid: 'BV1rPDkB7ESC', limit: 50, outputPath: 'runs/comments.xlsx' });
 
 const readable = formatHumanReadable({
   parsed: nlIssues,
@@ -122,6 +123,35 @@ assert.match(listedBilibiliPost.file, /commands\/bilibili\/cmd\/post_comment\.js
 const listedGithubIssues = listJson.commands.find((item) => item.name === 'github.list_issues');
 assert.ok(listedGithubIssues);
 assert.match(listedGithubIssues.file, /commands\/github\/cmd\/list_issues\.json$/);
+
+const githubIssuesCommand = loadCommand('github.list_issues').command;
+const defaultResolved = resolveCommandParams(githubIssuesCommand, { owner: '2aronS', repo: 'Duel-Agents' });
+assert.equal(defaultResolved.params.state, 'all');
+assert.equal(defaultResolved.params.outputPath, 'runs/github-issues.xlsx');
+assert.deepEqual(defaultResolved.meta.layers, ['command.defaultConfig.global', 'provided']);
+assert.equal(defaultResolved.meta.sources.state, 'command.defaultConfig.global');
+assert.equal(defaultResolved.meta.sources.owner, 'provided');
+const subjectResolved = resolveCommandParams(githubIssuesCommand, { repo: 'platform-command' });
+assert.equal(subjectResolved.params.owner, 'Michaelxwb');
+assert.equal(subjectResolved.params.state, 'open');
+assert.equal(subjectResolved.params.outputPath, 'runs/platform-command-issues.xlsx');
+assert.deepEqual(subjectResolved.meta.layers, ['command.defaultConfig.global', 'command.defaultConfig.subjects.platform-command', 'provided']);
+const subjectOverrideResolved = resolveCommandParams(githubIssuesCommand, { repo: 'platform-command', state: 'closed' });
+assert.equal(subjectOverrideResolved.params.state, 'closed');
+assert.equal(subjectOverrideResolved.meta.sources.state, 'provided');
+
+const nlDefaultIssues = parseNaturalLanguage('列出 GitHub 仓库 Michaelxwb/platform-command 的 issues');
+assert.equal(nlDefaultIssues.command, 'github.list_issues');
+assert.deepEqual(nlDefaultIssues.params, { owner: 'Michaelxwb', repo: 'platform-command' });
+
+const githubDefaultDry = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--command', 'github.list_issues', '--dry-run', 'owner=2aronS', 'repo=Duel-Agents'], { encoding: 'utf8' }));
+assert.equal(githubDefaultDry.params.state, 'all');
+assert.equal(githubDefaultDry.params.outputPath, 'runs/github-issues.xlsx');
+assert.equal(githubDefaultDry.paramsMeta.sources.state, 'command.defaultConfig.global');
+const githubSubjectDry = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--command', 'github.list_issues', '--dry-run', 'repo=platform-command'], { encoding: 'utf8' }));
+assert.equal(githubSubjectDry.params.owner, 'Michaelxwb');
+assert.equal(githubSubjectDry.params.state, 'open');
+assert.equal(githubSubjectDry.paramsMeta.sources.owner, 'command.defaultConfig.subjects.platform-command');
 
 const exampleExternalDir = path.join(process.cwd(), 'examples', 'external-commands');
 const externalListJson = JSON.parse(execFileSync('node', ['src/cli.js', 'list', '--json', '--commands-dir', exampleExternalDir], { encoding: 'utf8' }));

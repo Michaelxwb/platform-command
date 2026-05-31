@@ -35,16 +35,24 @@ async function collectRows(step, context) {
   const collect = step.collect || {};
   const limit = Number(renderValue(collect.limit || 100, context));
   const rows = [];
-  context.cursor = { next: collect.initialCursor ?? 0 };
+  context.cursor = { next: collect.initialCursor ?? collect.initialPage ?? 0 };
   let pages = 0;
   while (rows.length < limit && pages < Number(collect.maxPages || 20)) {
     pages += 1;
+    if (collect.pageParam) context.cursor = { ...context.cursor, page: pages };
     const body = await fetchStepJson(step, context);
-    const items = getPath(body, collect.itemsPath || 'data.items') || [];
+    const rawItems = getPath(body, collect.itemsPath || 'data.items') || [];
+    const items = rawItems.filter((item) => shouldKeepItem(item, collect));
     rows.push(...items.map((item) => mapItem(item, collect.map || [])));
     const isEnd = Boolean(getPath(body, collect.endPath || 'data.cursor.is_end'));
     const next = getPath(body, collect.nextPath || 'data.cursor.next');
-    if (rows.length >= limit || !items.length || isEnd || next === undefined || next === context.cursor.next) break;
+    if (rows.length >= limit || !rawItems.length || isEnd) break;
+    if (collect.pageParam) {
+      if (rawItems.length < Number(renderValue(collect.pageSize || 0, context))) break;
+      context.cursor = { ...context.cursor, next: pages + 1 };
+      continue;
+    }
+    if (next === undefined || next === context.cursor.next) break;
     context.cursor = { next };
   }
   return { rows: rows.slice(0, limit) };
@@ -84,6 +92,13 @@ async function signQueryWithCommandCode(query, signer, context) {
   const fn = imported[spec.export || 'signQuery'];
   if (typeof fn !== 'function') throw new Error(`Signer export not found: ${spec.export || 'signQuery'} in ${spec.module}`);
   return fn(query, { context });
+}
+
+function shouldKeepItem(item, collect) {
+  for (const path of collect.excludeWhenExists || []) {
+    if (getPath(item, path) !== undefined) return false;
+  }
+  return true;
 }
 
 function extractObject(body, extract) {
