@@ -2,6 +2,8 @@ import { loadCommand } from './command_store.js';
 import { UI_ACTIONS, findTemplateExpressions, normalizeRecipe } from './workflow.js';
 import { normalizeCapability } from './exporters.js';
 
+const JSON_OUTPUT_CAPABILITIES = new Set(['return_json', 'save_json']);
+
 const REQUIRED_TOP_LEVEL = ['name', 'platform', 'description', 'riskLevel', 'parameters'];
 const RISK_LEVELS = new Set(['low', 'medium', 'high']);
 const STEP_TYPES = new Set(['api', 'ui', 'manual']);
@@ -57,10 +59,10 @@ function validateOutput(command, errors) {
     return;
   }
   if (!output.capability) errors.push('output.capability is required');
-  if (output.capability && typeof output.capability === 'string' && !output.capability.includes('{{') && !normalizeCapability(output.capability)) {
+  if (output.capability && typeof output.capability === 'string' && !output.capability.includes('{{') && !normalizeCapability(output.capability) && !JSON_OUTPUT_CAPABILITIES.has(output.capability)) {
     errors.push(`output.capability is unsupported: ${output.capability}`);
   }
-  if (!output.path) errors.push('output.path is required');
+  if (!output.path && output.capability !== 'return_json') errors.push('output.path is required');
   if (output.columns !== undefined) {
     if (!Array.isArray(output.columns) || output.columns.length === 0) errors.push('output.columns must be a non-empty array');
     else output.columns.forEach((column, index) => {

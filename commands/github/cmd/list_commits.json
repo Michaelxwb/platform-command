@@ -133,5 +133,56 @@
     "examples": [
       "列出 GitHub 仓库 Michaelxwb/platform-command 的 commits，分支 master"
     ]
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "GitHub 场景实测：读取指定公开仓库某分支的提交列表。",
+    "steps": [
+      {
+        "id": "commits_api",
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repos/{{params.owner}}/{{params.repo}}/commits?sha={{params.branch}}&per_page=10",
+          "headers": {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "platform-command-scene-test"
+          },
+          "successWhen": [
+            "status < 400"
+          ]
+        },
+        "collect": {
+          "limit": 10,
+          "maxPages": 1,
+          "itemsPath": "$",
+          "map": [
+            {
+              "path": "sha",
+              "key": "sha"
+            },
+            {
+              "path": "commit.message",
+              "key": "message"
+            },
+            {
+              "path": "commit.author.name",
+              "key": "author"
+            },
+            {
+              "path": "commit.author.date",
+              "key": "date"
+            },
+            {
+              "path": "html_url",
+              "key": "url"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "output": {
+    "capability": "return_json",
+    "title": "GitHub 场景实测：读取指定公开仓库某分支的提交列表。"
   }
 }

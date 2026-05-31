@@ -183,5 +183,38 @@
     "examples": [
       "巡检 GitHub 仓库 Michaelxwb/platform-command，分支 master"
     ]
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "GitHub 场景实测：根据 owner/repo 参数打开仓库页，读取公开仓库元信息，并生成 API + UI 双路径的低风险巡检计划。",
+    "steps": [
+      {
+        "id": "repo_api",
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repos/{{params.owner}}/{{params.repo}}",
+          "headers": {
+            "accept": "application/vnd.github+json",
+            "x-github-api-version": "2022-11-28"
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        "extract": {
+          "fullName": "$.full_name",
+          "description": "$.description",
+          "defaultBranch": "$.default_branch",
+          "stars": "$.stargazers_count",
+          "forks": "$.forks_count",
+          "openIssues": "$.open_issues_count",
+          "url": "$.html_url"
+        }
+      }
+    ]
+  },
+  "output": {
+    "capability": "return_json",
+    "title": "GitHub 场景实测：根据 owner/repo 参数打开仓库页，读取公开仓库元信息，并生成 API + UI 双路径的低风险巡检计划。"
   }
 }

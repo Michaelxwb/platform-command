@@ -139,5 +139,56 @@
     "examples": [
       "在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all"
     ]
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "GitHub 场景实测：读取指定公开仓库的 Issues 列表，支持 state 参数。",
+    "steps": [
+      {
+        "id": "issues_api",
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repos/{{params.owner}}/{{params.repo}}/issues?state={{params.state}}&per_page=10",
+          "headers": {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "platform-command-scene-test"
+          },
+          "successWhen": [
+            "status < 400"
+          ]
+        },
+        "collect": {
+          "limit": 10,
+          "maxPages": 1,
+          "itemsPath": "$",
+          "map": [
+            {
+              "path": "number",
+              "key": "number"
+            },
+            {
+              "path": "title",
+              "key": "title"
+            },
+            {
+              "path": "state",
+              "key": "state"
+            },
+            {
+              "path": "user.login",
+              "key": "author"
+            },
+            {
+              "path": "html_url",
+              "key": "url"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "output": {
+    "capability": "return_json",
+    "title": "GitHub 场景实测：读取指定公开仓库的 Issues 列表，支持 state 参数。"
   }
 }

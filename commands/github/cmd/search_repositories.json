@@ -113,5 +113,55 @@
     "examples": [
       "在 GitHub 搜索仓库 platform-command user:Michaelxwb，最多 3"
     ]
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "GitHub 场景实测：按关键词搜索公开仓库，并用 API + UI 页面验证搜索结果。",
+    "steps": [
+      {
+        "id": "search_api",
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/search/repositories?q={{params.query}}&per_page={{params.limit}}",
+          "headers": {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "platform-command-scene-test"
+          },
+          "successWhen": [
+            "status < 400"
+          ]
+        },
+        "collect": {
+          "limit": "{{params.limit}}",
+          "maxPages": 1,
+          "itemsPath": "items",
+          "map": [
+            {
+              "path": "full_name",
+              "key": "fullName"
+            },
+            {
+              "path": "description",
+              "key": "description"
+            },
+            {
+              "path": "stargazers_count",
+              "key": "stars"
+            },
+            {
+              "path": "html_url",
+              "key": "url"
+            }
+          ]
+        },
+        "extract": {
+          "totalCount": "$.total_count"
+        }
+      }
+    ]
+  },
+  "output": {
+    "capability": "return_json",
+    "title": "GitHub 场景实测：按关键词搜索公开仓库，并用 API + UI 页面验证搜索结果。"
   }
 }

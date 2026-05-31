@@ -218,7 +218,22 @@ node src/cli.js verify --command demo.workflow_example
 node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5
 ```
 
-默认推荐先使用 `--dry-run`，确认参数、执行路径、步骤依赖、会话引用和风险等级后，再考虑真实执行。V3 第一阶段仍以结构化 dry-run 和协议接入为主，不做真实 UI 变更执行。
+低风险 GitHub 查询真实执行示例：
+
+```bash
+node src/cli.js verify --command github.inspect_repository
+node src/cli.js execute --command github.inspect_repository --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill branch=main
+node src/cli.js execute --command github.list_commits --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill branch=main
+node src/cli.js execute --command github.list_issues --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill
+node src/cli.js execute --command github.search_repositories --execute-real --confirm keyword=platform-command limit=3
+```
+
+默认推荐先使用 `--dry-run`，确认参数、执行路径、步骤依赖、会话引用和风险等级后，再考虑真实执行。
+
+真实执行分两类：
+
+- **框架内置可执行能力**：command 声明 `dataSource` + `output` 后，CLI/MCP 可以直接执行低风险读操作，例如 HTTP JSON 查询并 `return_json` / `save_json`。GitHub 查询类 command 已按这种方式接入，真实执行不需要站点 adapter。
+- **Agent/WebBridge 执行能力**：复杂 Web 写操作仍由 Agent 按 command JSON 里的 recipe/workflow 控制浏览器或调用已学习到的接口执行；JSON 负责描述参数、步骤、校验和风险边界，框架负责通用解析、dry-run、校验和分发，不把每个站点逻辑写死进框架。
 
 ## 安装与分发
 
