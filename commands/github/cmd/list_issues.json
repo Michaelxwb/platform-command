@@ -238,19 +238,5 @@
         "title": "URL"
       }
     ]
-  },
-  "defaultConfig": {
-    "subjectParam": "repo",
-    "global": {
-      "state": "all",
-      "outputPath": "runs/github-issues.xlsx"
-    },
-    "subjects": {
-      "platform-command": {
-        "owner": "Michaelxwb",
-        "state": "open",
-        "outputPath": "runs/platform-command-issues.xlsx"
-      }
-    }
   }
 }

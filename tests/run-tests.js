@@ -124,7 +124,12 @@ const listedGithubIssues = listJson.commands.find((item) => item.name === 'githu
 assert.ok(listedGithubIssues);
 assert.match(listedGithubIssues.file, /commands\/github\/cmd\/list_issues\.json$/);
 
+const githubIssuesCommandFile = path.join(process.cwd(), 'commands', 'github', 'cmd', 'list_issues.json');
+const githubIssuesRawCommand = JSON.parse(fs.readFileSync(githubIssuesCommandFile, 'utf8'));
+assert.equal(githubIssuesRawCommand.defaultConfig, undefined);
 const githubIssuesCommand = loadCommand('github.list_issues').command;
+assert.equal(githubIssuesCommand.defaultConfig?.subjectParam, 'repo');
+assert.equal(githubIssuesCommand.defaultConfig?.subjects?.['platform-command']?.owner, 'Michaelxwb');
 const defaultResolved = resolveCommandParams(githubIssuesCommand, { owner: '2aronS', repo: 'Duel-Agents' });
 assert.equal(defaultResolved.params.state, 'all');
 assert.equal(defaultResolved.params.outputPath, 'runs/github-issues.xlsx');

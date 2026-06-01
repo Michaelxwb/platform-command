@@ -102,10 +102,26 @@ export function listCommands(options = {}) {
 function hydrateCommand(command, file) {
   const commandDir = commandResourceRoot(file);
   const hydrated = structuredClone(command);
+  const defaultsFile = commandDefaultsFile(file);
+  if (!hydrated.defaultConfig && defaultsFile && fs.existsSync(defaultsFile)) {
+    hydrated.defaultConfig = readJson(defaultsFile);
+  }
   if (hydrated.output?.columnsTemplate && !hydrated.output.columns) {
     hydrated.output.columns = readCommandResourceJson(commandDir, hydrated.output.columnsTemplate);
   }
   return hydrated;
+}
+
+function commandDefaultsFile(file) {
+  const resolved = path.resolve(file);
+  const parent = path.dirname(resolved);
+  if (path.basename(parent) === 'cmd') {
+    return path.join(path.dirname(parent), 'config', `${path.basename(resolved, '.json')}.defaults.json`);
+  }
+  if (path.basename(resolved) === 'command.json' && path.basename(path.dirname(parent)) === 'cmd') {
+    return path.join(path.dirname(path.dirname(parent)), 'config', `${path.basename(parent)}.defaults.json`);
+  }
+  return null;
 }
 
 export function commandResourceRoot(file) {
