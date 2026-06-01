@@ -1,0 +1,7 @@
+{
+  "global": {
+    "limit": 50,
+    "mode": 3,
+    "outputPath": "runs/bilibili-comments.xlsx"
+  }
+}

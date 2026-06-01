@@ -13,19 +13,16 @@
     "limit": {
       "type": "number",
       "required": false,
-      "default": 50,
       "description": "要导出的评论数量上限，默认 50。"
     },
     "mode": {
       "type": "number",
       "required": false,
-      "default": 3,
       "description": "B 站评论排序模式，默认 3，按页面默认/热门排序读取；可按需要改为平台支持的其他 mode。"
     },
     "outputPath": {
       "type": "string",
       "required": false,
-      "default": "runs/bilibili-comments.xlsx",
       "description": "Excel 输出路径。"
     }
   },

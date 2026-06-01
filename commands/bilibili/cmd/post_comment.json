@@ -8,7 +8,6 @@
     "videoUrl": {
       "type": "string",
       "required": false,
-      "default": "https://www.bilibili.com/video/BV1YNGn6CEcH",
       "description": "目标 B 站视频 URL，建议使用 /video/BV... 页面。"
     },
     "commentText": {
@@ -19,7 +18,6 @@
     "autoPublish": {
       "type": "boolean",
       "required": false,
-      "default": false,
       "description": "是否自动点击“发布”按钮。默认 false 只停留在草稿态；显式传 autoPublish=true 才表示允许自动发布。"
     }
   },
