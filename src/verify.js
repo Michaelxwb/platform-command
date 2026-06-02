@@ -1,5 +1,6 @@
 import { loadCommand } from './command_store.js';
 import { UI_ACTIONS, findTemplateExpressions, normalizeRecipe } from './workflow.js';
+import { ACCEPTANCE_TYPES, normalizeAcceptanceCriteria } from './acceptance.js';
 import { normalizeCapability } from './exporters.js';
 
 const JSON_OUTPUT_CAPABILITIES = new Set(['return_json', 'save_json']);
@@ -24,6 +25,7 @@ export function verifyCommand(commandName, options = {}) {
   validateNaturalLanguage(command, errors);
   validateDataSource(command, errors);
   validateOutput(command, errors);
+  validateAcceptance(command, errors);
   const recipe = normalizeRecipe(command);
   if (recipe) {
     validateWorkflow(recipe, command, errors, recipe.kind === 'recipe' ? 'steps' : 'execution.workflow.steps');
@@ -35,6 +37,24 @@ export function verifyCommand(commandName, options = {}) {
     if (command.execution?.workflow) validateWorkflow(command.execution.workflow, command, errors);
   }
   return { ok: errors.length === 0, file, command, errors };
+}
+
+function validateAcceptance(command, errors) {
+  const criteria = normalizeAcceptanceCriteria(command);
+  if (!Array.isArray(criteria)) {
+    errors.push('acceptance.criteria must be an array');
+    return;
+  }
+  criteria.forEach((criterion, index) => {
+    if (!criterion || typeof criterion !== 'object' || Array.isArray(criterion)) {
+      errors.push(`acceptance.criteria[${index}] must be an object`);
+      return;
+    }
+    if (!criterion.type) errors.push(`acceptance.criteria[${index}].type is required`);
+    else if (!ACCEPTANCE_TYPES.has(criterion.type)) errors.push(`acceptance.criteria[${index}].type is unsupported: ${criterion.type}`);
+    if (!criterion.expect && !criterion.message && !criterion.description && criterion.type === 'manual_check') errors.push(`acceptance.criteria[${index}].message is required for manual_check`);
+    validateKnownParameterTemplates(criterion, command, `acceptance.criteria[${index}]`, errors);
+  });
 }
 
 function validateDataSource(command, errors) {

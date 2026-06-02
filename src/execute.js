@@ -1,6 +1,7 @@
 import { commandResourceRoot, loadCommand } from './command_store.js';
 import { resolveCommandParams } from './params_resolver.js';
 import { buildWorkflowPlan, normalizeRecipe, renderValue } from './workflow.js';
+import { buildAcceptanceContract, initializeAcceptanceEvidence } from './acceptance.js';
 import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
 import { executeAutoCapability, hasAutoCapability } from './capabilities.js';
@@ -81,6 +82,8 @@ function buildExecutionPlan(command, params, options = {}) {
     execution: capability,
     preferredModes: prefer,
     steps: redactSensitive(steps),
+    acceptance: buildAcceptanceContract(command),
+    acceptanceEvidence: initializeAcceptanceEvidence(command),
     successCriteria: command.successCriteria,
     failureCases: command.failureCases || []
   };

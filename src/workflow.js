@@ -1,4 +1,7 @@
 import { redactSensitive } from './utils.js';
+import { buildAcceptanceContract, initializeAcceptanceEvidence } from './acceptance.js';
+export { findTemplateExpressions, renderValue } from './template.js';
+import { findTemplateExpressions, renderValue } from './template.js';
 
 export const UI_ACTIONS = new Set(['goto', 'fill', 'click', 'select', 'waitFor', 'assert', 'screenshot']);
 
@@ -36,6 +39,8 @@ export function buildWorkflowPlan(command, params, options = {}) {
     dataSource: command.dataSource ? redactSensitive(renderValue(command.dataSource, auxContext)) : undefined,
     output: command.output ? redactSensitive(renderValue(command.output, auxContext)) : undefined,
     checks: renderValue(recipe.checks || [], context),
+    acceptance: buildAcceptanceContract({ ...command, successCriteria: recipe.successCriteria || recipe.checks || [] }),
+    acceptanceEvidence: initializeAcceptanceEvidence({ ...command, successCriteria: recipe.successCriteria || recipe.checks || [] }),
     successCriteria: renderValue(recipe.successCriteria || [], context),
     failureCases: renderValue(recipe.failureCases || [], context)
   };
@@ -173,52 +178,4 @@ function sortStepsByDependency(steps, warnings) {
   }
   steps.forEach(visit);
   return ordered;
-}
-
-export function renderValue(value, context) {
-  if (typeof value === 'string') return renderTemplate(value, context);
-  if (Array.isArray(value)) return value.map((item) => renderValue(item, context));
-  if (value && typeof value === 'object') {
-    const out = {};
-    for (const [key, item] of Object.entries(value)) out[key] = renderValue(item, context);
-    return out;
-  }
-  return value;
-}
-
-export function findTemplateExpressions(value, found = []) {
-  if (typeof value === 'string') {
-    for (const match of value.matchAll(/{{\s*([^}]+?)\s*}}/g)) found.push(match[1].trim());
-  } else if (Array.isArray(value)) {
-    value.forEach((item) => findTemplateExpressions(item, found));
-  } else if (value && typeof value === 'object') {
-    Object.values(value).forEach((item) => findTemplateExpressions(item, found));
-  }
-  return found;
-}
-
-export function renderTemplate(input, context) {
-  const source = String(input);
-  const whole = source.match(/^{{\s*([^}]+?)\s*}}$/);
-  if (whole) return resolveTemplateValue(whole[1].trim(), context, `{{${whole[1].trim()}}}`);
-  return source.replace(/{{\s*([^}]+?)\s*}}/g, (_, expr) => {
-    const value = resolveTemplateValue(expr.trim(), context, `{{${expr.trim()}}}`);
-    return value == null ? '' : String(value);
-  });
-}
-
-function resolveTemplateValue(path, context, fallback) {
-  if (/^[a-zA-Z0-9_]+$/.test(path) && Object.prototype.hasOwnProperty.call(context.params || {}, path)) {
-    return context.params[path];
-  }
-  const parts = path.split('.');
-  let current = context;
-  for (const part of parts) {
-    if (current && Object.prototype.hasOwnProperty.call(current, part)) current = current[part];
-    else {
-      if (context.warnings) context.warnings.push({ code: 'UNRESOLVED_TEMPLATE', expression: path });
-      return fallback;
-    }
-  }
-  return current == null ? '' : current;
 }

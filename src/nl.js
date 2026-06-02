@@ -17,11 +17,13 @@ export function parseNaturalLanguage(input, options = {}) {
     const matched = matchCommand(text, command);
     if (!matched.ok) continue;
     const params = extractParams(text, command);
+    const routeScore = routeBonus(command, text);
+    const confidence = Math.max(0.01, Math.min(0.99, Number((matched.confidence + routeScore / 100).toFixed(2))));
     candidates.push({
       command: command.name,
       params,
       intent: command.naturalLanguage.intent || command.description,
-      confidence: matched.confidence,
+      confidence,
       matchedBy: 'command.naturalLanguage'
     });
   }
@@ -180,7 +182,19 @@ function cleanupText(value, cleanup) {
   return result;
 }
 
+
+function routeBonus(command, text) {
+  const name = String(command.name || '');
+  const t = String(text || '');
+  const wantsExportComments = /(导出|获取|抓取|保存|输出|下载).{0,12}(评论|评论数据)|评论.{0,12}(导出|数据|excel|xlsx|保存|输出)/i.test(t);
+  const wantsPostComment = /(发布|发表|发送|评论一下|留言|回复).{0,8}(评论|弹幕|留言)?/i.test(t);
+  if (name.includes('export_comments')) return wantsExportComments ? 80 : (wantsPostComment ? -60 : 0);
+  if (name.includes('post_comment')) return wantsPostComment ? 80 : (wantsExportComments ? -60 : 0);
+  return 0;
+}
+
 function containsAll(text, needles) {
+
   return needles.every((needle) => contains(text, needle));
 }
 

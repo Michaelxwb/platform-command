@@ -87,6 +87,12 @@ const nlBilibiliExport = parseNaturalLanguage('获取 bilibili 视频 https://ww
 assert.equal(nlBilibiliExport.command, 'bilibili.export_comments');
 assert.deepEqual(nlBilibiliExport.params, { bvid: 'BV1rPDkB7ESC', limit: 50, outputPath: 'runs/comments.xlsx' });
 
+const nlBilibiliExportAmbiguous = parseNaturalLanguage('帮我获取 bilibili 视频 BV1rPDkB7ESC 的评论数据');
+assert.equal(nlBilibiliExportAmbiguous.command, 'bilibili.export_comments');
+
+const nlBilibiliPostAmbiguous = parseNaturalLanguage('给 bilibili 视频 https://www.bilibili.com/video/BV1YNGn6CEcH 发布评论：测试评论');
+assert.equal(nlBilibiliPostAmbiguous.command, 'bilibili.post_comment');
+
 const readable = formatHumanReadable({
   parsed: nlIssues,
   result: {
@@ -288,6 +294,11 @@ assert.deepEqual(bilibiliExportDry.plan.output.columns.map((column) => column.ti
 assert.equal(bilibiliExportDry.plan.steps[1].request.url, 'https://api.bilibili.com/x/web-interface/view?bvid=BV1rPDkB7ESC');
 assert.equal(bilibiliExportDry.plan.steps[2].request.url, 'https://api.bilibili.com/x/v2/reply/wbi/main?type=1&oid=116366820508713&mode=3&ps=20&next=0');
 assert.equal(bilibiliExportDry.plan.dataSource.type, 'http_json');
+assert.equal(bilibiliExportDry.plan.acceptance.criteria.length, 3);
+assert.equal(bilibiliExportDry.plan.acceptance.criteria[0].type, 'manual_check');
+assert.equal(bilibiliExportDry.plan.acceptanceEvidence.status, 'pending');
+assert.equal(bilibiliExportDry.plan.acceptanceEvidence.criteria.criterion_1.type, 'manual_check');
+assert.equal(bilibiliExportDry.plan.acceptanceEvidence.criteria.criterion_1.description, bilibiliExportDry.plan.acceptance.criteria[0].description);
 assert.equal(bilibiliExportDry.plan.dataSource.steps[1].request.signer.module, './code/bilibili_wbi.js');
 assert.equal(bilibiliExportDry.plan.dataSource.steps[1].collect.map[0].key, 'commenter');
 
@@ -456,6 +467,14 @@ const promptsResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 13, method:
 assert.ok(promptsResponse.result.prompts.some((prompt) => prompt.name === 'platform_command_build_command'));
 const promptResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 14, method: 'prompts/get', params: { name: 'platform_command_execute_safely', arguments: { command: 'demo.search_example' } } });
 assert.match(promptResponse.result.messages[0].content.text, /verify/);
+
+const toolsResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 16, method: 'tools/list' });
+assert.ok(toolsResponse.result.tools.some((tool) => tool.name === 'platform_command_learn'));
+const mcpLearnResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 17, method: 'tools/call', params: { name: 'platform_command_learn', arguments: { url: 'https://example.com', platform: 'demo', action: 'mcp_manual', provider: 'manual' } } });
+const mcpLearnPayload = JSON.parse(mcpLearnResponse.result.content[0].text);
+assert.equal(mcpLearnPayload.status, 'learned_fallback');
+assert.equal(mcpLearnPayload.provider, 'manual');
+fs.rmSync(mcpLearnPayload.runDir, { recursive: true, force: true });
 
 const manualLearn = await learnAction({ url: 'https://example.com', platform: 'demo', action: 'manual_test', provider: 'manual' });
 assert.equal(manualLearn.status, 'learned_fallback');

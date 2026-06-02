@@ -3,6 +3,7 @@ import readline from 'node:readline';
 import { createRequire } from 'node:module';
 import { listCommands, loadCommand } from './command_store.js';
 import { executeCommand, getExecutionCapability } from './execute.js';
+import { learnAction } from './learn.js';
 import { verifyCommand } from './verify.js';
 
 const require = createRequire(import.meta.url);
@@ -47,6 +48,22 @@ export const MCP_TOOLS = [
         params: { type: 'object', additionalProperties: true },
         dryRun: { type: 'boolean', default: true },
         confirm: { type: 'boolean', default: false }
+      }
+    }
+  },
+  {
+    name: 'platform_command_learn',
+    description: 'Learn a new platform action from a URL using the same contract as the CLI learn command.',
+    inputSchema: {
+      type: 'object',
+      required: ['url', 'platform', 'action'],
+      properties: {
+        url: { type: 'string' },
+        platform: { type: 'string' },
+        action: { type: 'string' },
+        provider: { type: 'string', enum: ['auto', 'manual', 'playwright'], default: 'auto' },
+        headless: { type: 'boolean', default: true },
+        timeoutMs: { type: 'number' }
       }
     }
   }
@@ -117,6 +134,17 @@ async function callTool(name, args) {
   if (name === 'platform_command_execute') {
     const dryRun = args.dryRun !== false;
     const result = await executeCommand(args.command, args.params || {}, { dryRun, confirm: !!args.confirm });
+    return toolResult(result);
+  }
+  if (name === 'platform_command_learn') {
+    const result = await learnAction({
+      url: args.url,
+      platform: args.platform,
+      action: args.action,
+      provider: args.provider || 'auto',
+      headless: args.headless !== false,
+      timeoutMs: args.timeoutMs
+    });
     return toolResult(result);
   }
   return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
