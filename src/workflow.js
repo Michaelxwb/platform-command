@@ -198,20 +198,27 @@ export function findTemplateExpressions(value, found = []) {
 }
 
 export function renderTemplate(input, context) {
-  return input.replace(/{{\s*([^}]+?)\s*}}/g, (_, expr) => {
-    const path = expr.trim();
-    if (/^[a-zA-Z0-9_]+$/.test(path) && Object.prototype.hasOwnProperty.call(context.params || {}, path)) {
-      return String(context.params[path]);
-    }
-    const parts = path.split('.');
-    let current = context;
-    for (const part of parts) {
-      if (current && Object.prototype.hasOwnProperty.call(current, part)) current = current[part];
-      else {
-        if (context.warnings) context.warnings.push({ code: 'UNRESOLVED_TEMPLATE', expression: path });
-        return `{{${path}}}`;
-      }
-    }
-    return current == null ? '' : String(current);
+  const source = String(input);
+  const whole = source.match(/^{{\s*([^}]+?)\s*}}$/);
+  if (whole) return resolveTemplateValue(whole[1].trim(), context, `{{${whole[1].trim()}}}`);
+  return source.replace(/{{\s*([^}]+?)\s*}}/g, (_, expr) => {
+    const value = resolveTemplateValue(expr.trim(), context, `{{${expr.trim()}}}`);
+    return value == null ? '' : String(value);
   });
+}
+
+function resolveTemplateValue(path, context, fallback) {
+  if (/^[a-zA-Z0-9_]+$/.test(path) && Object.prototype.hasOwnProperty.call(context.params || {}, path)) {
+    return context.params[path];
+  }
+  const parts = path.split('.');
+  let current = context;
+  for (const part of parts) {
+    if (current && Object.prototype.hasOwnProperty.call(current, part)) current = current[part];
+    else {
+      if (context.warnings) context.warnings.push({ code: 'UNRESOLVED_TEMPLATE', expression: path });
+      return fallback;
+    }
+  }
+  return current == null ? '' : current;
 }

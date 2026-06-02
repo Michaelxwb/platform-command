@@ -39,7 +39,11 @@ async function collectRows(step, context) {
   let pages = 0;
   while (rows.length < limit && pages < Number(collect.maxPages || 20)) {
     pages += 1;
-    if (collect.pageParam) context.cursor = { ...context.cursor, page: pages };
+    context.cursor = {
+      ...context.cursor,
+      page: collect.pageParam ? pages : context.cursor.page,
+      offset: collect.offsetParam ? (pages - 1) * Number(renderValue(collect.pageSize || limit, context) || limit) : context.cursor.offset
+    };
     const body = await fetchStepJson(step, context);
     const rawItems = getPath(body, collect.itemsPath || 'data.items') || [];
     const items = rawItems.filter((item) => shouldKeepItem(item, collect));
@@ -47,8 +51,9 @@ async function collectRows(step, context) {
     const isEnd = Boolean(getPath(body, collect.endPath || 'data.cursor.is_end'));
     const next = getPath(body, collect.nextPath || 'data.cursor.next');
     if (rows.length >= limit || !rawItems.length || isEnd) break;
-    if (collect.pageParam) {
-      if (rawItems.length < Number(renderValue(collect.pageSize || 0, context))) break;
+    if (collect.pageParam || collect.offsetParam) {
+      const renderedPageSize = Number(renderValue(collect.pageSize || 0, context));
+      if (renderedPageSize > 0 && rawItems.length < renderedPageSize) break;
       context.cursor = { ...context.cursor, next: pages + 1 };
       continue;
     }
@@ -65,12 +70,18 @@ async function fetchStepJson(step, context) {
   const target = new URL(request.url);
   const query = await signQueryWithCommandCode(request.query || {}, request.signer, context);
   for (const [key, value] of Object.entries(query)) target.searchParams.set(key, String(value));
-  const timeoutMs = Number(request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS);
-  const response = await fetch(target, {
-    method: request.method || 'GET',
-    headers: request.headers || {},
-    signal: AbortSignal.timeout(timeoutMs)
-  });
+  const method = String(request.method || 'GET').toUpperCase();
+  const headers = { ...(request.headers || {}) };
+  const init = { method, headers, signal: AbortSignal.timeout(Number(request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS)) };
+  if (request.body !== undefined && !['GET', 'HEAD'].includes(method)) {
+    const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === 'content-type');
+    if (typeof request.body === 'string' || request.body instanceof Uint8Array) init.body = request.body;
+    else {
+      init.body = JSON.stringify(request.body);
+      if (!hasContentType) headers['content-type'] = 'application/json';
+    }
+  }
+  const response = await fetch(target, init);
   if (!response.ok) throw new Error(`HTTP ${response.status} for ${target}`);
   const body = await response.json();
   const expectedCode = request.expect?.bodyCode;
@@ -114,7 +125,7 @@ function mapItem(item, mappings) {
   for (const mapping of mappings) {
     let value = getPath(item, mapping.path);
     if (mapping.transform === 'unixTime') value = formatUnixTime(value);
-    if (mapping.transform === 'number') value = Number(value || 0);
+    else if (mapping.transform === 'number') value = Number(value || 0);
     out[mapping.key] = value ?? '';
   }
   return out;

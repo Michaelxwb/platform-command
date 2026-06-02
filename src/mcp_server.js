@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import readline from 'node:readline';
 import { listCommands, loadCommand } from './command_store.js';
-import { executeCommand } from './execute.js';
+import { executeCommand, getExecutionCapability } from './execute.js';
 import { verifyCommand } from './verify.js';
 
 const SERVER_INFO = { name: 'platform-command', version: '0.3.0' };
@@ -108,7 +108,7 @@ async function callTool(name, args) {
   if (name === 'platform_command_list') return toolResult({ commands: listCommands({ detailed: !!args.detailed }) });
   if (name === 'platform_command_describe') {
     const { file, source, command } = loadCommand(args.command);
-    return toolResult({ file, source, command });
+    return toolResult({ file, source, command, execution: getExecutionCapability(command) });
   }
   if (name === 'platform_command_verify') return toolResult(verifyCommand(args.command));
   if (name === 'platform_command_execute') {

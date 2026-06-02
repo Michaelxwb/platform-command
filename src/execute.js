@@ -5,6 +5,21 @@ import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
 import { executeAutoCapability, hasAutoCapability } from './capabilities.js';
 
+export function getExecutionCapability(command) {
+  if (hasAutoCapability(command)) {
+    return {
+      executable: true,
+      engine: 'auto_capability',
+      reason: 'Command has dataSource plus output.capability and can be executed by the built-in capability engine.'
+    };
+  }
+  return {
+    executable: false,
+    engine: null,
+    reason: 'No real execution engine is available for this command shape; use dry-run workflow plans or add dataSource plus output.capability.'
+  };
+}
+
 export async function executeCommand(commandName, providedParams = {}, options = {}) {
   const { file, command } = loadCommand(commandName, { commandsDir: options.commandsDir });
   const { params, meta: paramsMeta } = resolveCommandParams(command, providedParams);
@@ -23,13 +38,16 @@ export async function executeCommand(commandName, providedParams = {}, options =
     };
   }
   if (!options.confirm) throw new Error('Real execution is disabled unless --confirm is provided. High-risk steps may require additional confirmation.');
-  if (hasAutoCapability(command)) return executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
-  throw new Error('Real execution engine is not enabled in V2; use dry-run workflow plans first.');
+  const capability = getExecutionCapability(command);
+  if (capability.executable) return executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
+  throw new Error(capability.reason);
 }
 
 function buildExecutionPlan(command, params, options = {}) {
+  const capability = getExecutionCapability(command);
   if (normalizeRecipe(command)) {
-    return buildWorkflowPlan(command, params, options);
+    const plan = buildWorkflowPlan(command, params, options);
+    return { ...plan, execution: capability };
   }
   const prefer = command.execution?.prefer || [];
   const steps = [];
@@ -41,6 +59,7 @@ function buildExecutionPlan(command, params, options = {}) {
   }
   return {
     kind: 'legacy',
+    execution: capability,
     preferredModes: prefer,
     steps: redactSensitive(steps),
     successCriteria: command.successCriteria,

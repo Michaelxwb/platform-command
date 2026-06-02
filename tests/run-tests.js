@@ -4,20 +4,48 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { listCommands, loadCommand, mergeParams } from '../src/command_store.js';
 import { resolveCommandParams } from '../src/params_resolver.js';
-import { buildWorkflowPlan } from '../src/workflow.js';
+import { buildWorkflowPlan, renderValue } from '../src/workflow.js';
 import { verifyCommand } from '../src/verify.js';
 import { formatHumanReadable, parseNaturalLanguage } from '../src/nl.js';
 import { learnAction } from '../src/learn.js';
 import { handleMcpRequest } from '../src/mcp_server.js';
 import { exportRows } from '../src/exporters.js';
+import { readDataSource } from '../src/data_sources.js';
+import { executeCommand, getExecutionCapability } from '../src/execute.js';
 import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
 const commandsDir = path.join(process.cwd(), 'commands');
+
+const typedRenderContext = { params: { limit: 5, enabled: false, nested: { count: 2 } }, steps: {}, warnings: [] };
+assert.equal(renderValue('{{limit}}', typedRenderContext), 5);
+assert.equal(renderValue('{{enabled}}', typedRenderContext), false);
+assert.deepEqual(renderValue({ limit: '{{limit}}', label: 'top {{limit}}', nested: '{{nested}}' }, typedRenderContext), {
+  limit: 5,
+  label: 'top 5',
+  nested: { count: 2 }
+});
 
 const nlIssues = parseNaturalLanguage('在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all');
 assert.equal(nlIssues.command, 'github.list_issues');
 assert.deepEqual(nlIssues.params, { owner: 'zhaoxuya520', repo: 'reverse-skill', state: 'all' });
 assert.ok(nlIssues.confidence >= 0.95);
+
+const nlFixtureCommandsDir = path.join(process.cwd(), '.tmp-nl-commands');
+fs.rmSync(nlFixtureCommandsDir, { recursive: true, force: true });
+fs.mkdirSync(nlFixtureCommandsDir, { recursive: true });
+fs.writeFileSync(path.join(nlFixtureCommandsDir, 'demo.after_marker.json'), JSON.stringify({
+  name: 'demo.after_marker',
+  description: 'Demo after marker extraction',
+  riskLevel: 'low',
+  parameters: { content: { type: 'string' } },
+  naturalLanguage: {
+    match: { any: ['发布'], verbs: ['发布'] },
+    extract: { content: { type: 'after', marker: '内容是', stop: ['，状态'] } }
+  },
+  recipe: { kind: 'workflow', steps: [] }
+}, null, 2));
+assert.deepEqual(parseNaturalLanguage('发布动态，内容是今天完成修复，状态公开', { commandsDir: nlFixtureCommandsDir }).params, { content: '今天完成修复' });
+fs.rmSync(nlFixtureCommandsDir, { recursive: true, force: true });
 
 const nlCommits = parseNaturalLanguage('列出 GitHub 仓库 Michaelxwb/platform-command 的 commits，分支 master');
 assert.equal(nlCommits.command, 'github.list_commits');
@@ -330,7 +358,7 @@ assert.equal(workflowParsed.status, 'dry_run');
 assert.equal(workflowParsed.plan.kind, 'workflow');
 assert.equal(workflowParsed.plan.steps.length, 4);
 assert.equal(workflowParsed.plan.steps[0].request.query.q, 'abc');
-assert.equal(workflowParsed.plan.steps[0].request.query.limit, '5');
+assert.equal(workflowParsed.plan.steps[0].request.query.limit, 5);
 assert.equal(workflowParsed.plan.steps[1].request.url, 'https://example.com/api/items/demo-item-001');
 const uiStep = workflowParsed.plan.steps.find((step) => step.id === 'open_detail_page');
 assert.ok(uiStep, 'UI step should exist');
@@ -375,8 +403,26 @@ try {
 }
 
 
+const autoExecutionCommand = { name: 'demo.auto_exec', dataSource: { type: 'inline', rows: [] }, output: { capability: 'return_json' } };
+assert.deepEqual(getExecutionCapability(autoExecutionCommand), { executable: true, engine: 'auto_capability', reason: 'Command has dataSource plus output.capability and can be executed by the built-in capability engine.' });
+const blockedExecutionCommand = { name: 'demo.workflow_only', execution: { workflow: { steps: [{ type: 'api', request: { url: 'https://example.test' } }] } } };
+assert.deepEqual(getExecutionCapability(blockedExecutionCommand), { executable: false, engine: null, reason: 'No real execution engine is available for this command shape; use dry-run workflow plans or add dataSource plus output.capability.' });
+const blockedPlanDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-blocked-plan-'));
+try {
+  fs.writeFileSync(path.join(blockedPlanDir, 'demo.workflow_only.json'), JSON.stringify(blockedExecutionCommand, null, 2));
+  const blockedPlanResult = await executeCommand('demo.workflow_only', {}, { commandsDir: blockedPlanDir, dryRun: true });
+  assert.deepEqual(blockedPlanResult.plan.execution, getExecutionCapability(blockedExecutionCommand));
+} finally {
+  fs.rmSync(blockedPlanDir, { recursive: true, force: true });
+}
+
 const initResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 10, method: 'initialize', params: {} });
 assert.deepEqual(initResponse.result.capabilities, { tools: {}, resources: {}, prompts: {} });
+const describeResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 15, method: 'tools/call', params: { name: 'platform_command_describe', arguments: { command: 'demo.search_example' } } });
+const describedCommand = JSON.parse(describeResponse.result.content[0].text);
+assert.equal(describedCommand.execution.executable, false);
+assert.equal(describedCommand.execution.engine, null);
+
 const resourcesResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 11, method: 'resources/list' });
 assert.ok(resourcesResponse.result.resources.some((resource) => resource.uri === 'platform-command://commands'));
 const commandsResource = await handleMcpRequest({ jsonrpc: '2.0', id: 12, method: 'resources/read', params: { uri: 'platform-command://commands' } });
@@ -392,5 +438,39 @@ assert.equal(manualLearn.provider, 'manual');
 assert.equal(manualLearn.report.provider, 'manual');
 assert.ok(manualLearn.report.fallbackInstructions.length > 0);
 fs.rmSync(manualLearn.runDir, { recursive: true, force: true });
+
+
+const http = await import('node:http');
+let capturedPostBody = null;
+const postBodyServer = http.createServer((req, res) => {
+  const chunks = [];
+  req.on('data', (chunk) => chunks.push(chunk));
+  req.on('end', () => {
+    capturedPostBody = Buffer.concat(chunks).toString('utf8');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, echoed: capturedPostBody }));
+  });
+});
+await new Promise((resolve) => postBodyServer.listen(0, '127.0.0.1', resolve));
+try {
+  const { port } = postBodyServer.address();
+  const postData = await readDataSource({
+    type: 'http_json',
+    steps: [{
+      id: 'submit',
+      request: {
+        method: 'POST',
+        url: `http://127.0.0.1:${port}/submit`,
+        headers: { 'content-type': 'application/json' },
+        body: { limit: '{{limit}}', keyword: '{{keyword}}' }
+      },
+      extract: { echoed: 'echoed' }
+    }]
+  }, { limit: 7, keyword: 'abc' });
+  assert.equal(capturedPostBody, JSON.stringify({ limit: 7, keyword: 'abc' }));
+  assert.equal(postData.meta.echoed, capturedPostBody);
+} finally {
+  await new Promise((resolve) => postBodyServer.close(resolve));
+}
 
 console.log('All tests passed.');

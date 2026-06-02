@@ -113,6 +113,27 @@ function extractValue(text, rule = {}) {
   if (rule.type === 'after') {
     const quoted = text.match(/[“\"]([^”\"]+)[”\"]/);
     let raw = quoted?.[1]?.trim() || regexGroup(text, rule.pattern, rule.group || 1);
+    if (!raw) {
+      const marker = rule.marker || rule.after;
+      const markers = Array.isArray(marker) ? marker : [marker];
+      const found = markers
+        .filter(Boolean)
+        .map((item) => ({ item, index: text.indexOf(item) }))
+        .filter((item) => item.index >= 0)
+        .sort((a, b) => a.index - b.index)[0];
+      if (found) {
+        raw = text.slice(found.index + found.item.length);
+        if (rule.stop) {
+          const stops = Array.isArray(rule.stop) ? rule.stop : [rule.stop];
+          const stopIndex = stops
+            .filter(Boolean)
+            .map((item) => (item instanceof RegExp ? raw.search(item) : raw.search(escapeRegExp(item))))
+            .filter((idx) => idx >= 0)
+            .sort((a, b) => a - b)[0];
+          if (stopIndex !== undefined) raw = raw.slice(0, stopIndex);
+        }
+      }
+    }
     raw = cleanupText(raw || '', rule.cleanup);
     return raw || undefined;
   }
@@ -131,10 +152,15 @@ function regexGroup(text, pattern, group = 1) {
   return m ? String(m[group] || '').trim() : '';
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function cleanupText(value, cleanup) {
   let result = String(value || '').trim();
   if (cleanup === 'limitClause') result = result.replace(/，?\s*(?:最多|limit|限制)\s*[:：=]?\s*\d+.*$/i, '').trim();
   if (cleanup === 'autoPublishClause') result = result.replace(/[，,。；;]?\s*(?:并)?(?:自动发布|直接发布|发出去|点击发布|不要发布|不发布|只填草稿|草稿|autoPublish\s*=\s*(?:true|false)).*$/i, '').trim();
+  if (cleanup === 'trailingClauses') result = result.replace(/[，,。；;]\s*(?:最多|limit|限制|并|然后|同时).*/i, '').trim();
   return result;
 }
 
