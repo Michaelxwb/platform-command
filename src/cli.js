@@ -14,6 +14,7 @@ Usage:
   node src/cli.js --help
   node src/cli.js list [--json] [--commands-dir <dir>]
   node src/cli.js mcp
+  node src/cli.js verify <name> [--commands-dir <dir>]
   node src/cli.js verify --command <name> [--commands-dir <dir>]
   node src/cli.js execute --command <name> [--commands-dir <dir>] [--dry-run] key=value ...
   node src/cli.js ask "自然语言指令" [--json] [--execute-real --confirm]
@@ -21,7 +22,7 @@ Usage:
   node src/cli.js learn --platform <name> --action <name> --url <url> [--observe-seconds 8] [--headed]
 
 Examples:
-  node src/cli.js verify --command demo.search_example
+  node src/cli.js verify demo.search_example
   node src/cli.js execute --command demo.search_example --dry-run keyword=abc
   node src/cli.js ask "在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all"
   node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5
@@ -70,8 +71,9 @@ async function main() {
     return;
   }
   if (cmd === 'verify') {
-    if (!args.command) throw new Error('verify requires --command');
-    const result = verifyCommand(args.command, { commandsDir: args.commandsDir });
+    const commandName = args.command || args._[0];
+    if (!commandName) throw new Error('verify requires <name> or --command <name>');
+    const result = verifyCommand(commandName, { commandsDir: args.commandsDir });
     printJson({ ok: result.ok, file: result.file, errors: result.errors });
     if (!result.ok) process.exitCode = 1;
     return;

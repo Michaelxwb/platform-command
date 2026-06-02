@@ -179,6 +179,13 @@ function cleanupText(value, cleanup) {
   if (cleanup === 'limitClause') result = result.replace(/，?\s*(?:最多|limit|限制)\s*[:：=]?\s*\d+.*$/i, '').trim();
   if (cleanup === 'autoPublishClause') result = result.replace(/[，,。；;]?\s*(?:并)?(?:自动发布|直接发布|发出去|点击发布|不要发布|不发布|只填草稿|草稿|autoPublish\s*=\s*(?:true|false)).*$/i, '').trim();
   if (cleanup === 'trailingClauses') result = result.replace(/[，,。；;]\s*(?:最多|limit|限制|并|然后|同时).*/i, '').trim();
+  if (cleanup === 'sangforProjectName') {
+    result = result
+      .replace(/^(?:包含|是|为|=|:|：)\s*/i, '')
+      .replace(/[，,。；;]?\s*(?:前|最多|limit|数量|输出|保存|导出到|output)\s*.*$/i, '')
+      .replace(/^(?:列表|查询|导出|获取|过滤|搜索)\s*/i, '')
+      .trim();
+  }
   return result;
 }
 

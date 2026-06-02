@@ -125,7 +125,15 @@ function autoEvaluate(criterion, result) {
     if (rows === undefined || rows === null) return null;
     const count = Array.isArray(rows) ? rows.length : Number(rows) || 0;
     const minCount = Number(criterion.expect?.minCount ?? 1);
-    return { passed: count >= minCount, evidence: { count, minCount } };
+    const requiredColumns = Array.isArray(criterion.expect?.requiredColumns) ? criterion.expect.requiredColumns : [];
+    const presentColumns = Array.isArray(rows)
+      ? Array.from(new Set(rows.flatMap((row) => row && typeof row === 'object' ? Object.keys(row) : []))).sort()
+      : [];
+    const missingColumns = requiredColumns.filter((column) => !presentColumns.includes(column));
+    return {
+      passed: count >= minCount && missingColumns.length === 0,
+      evidence: { count, minCount, ...(requiredColumns.length ? { requiredColumns, presentColumns, missingColumns } : {}) }
+    };
   }
   // api_response / ui_visible / manual_check require agent-supplied evidence.
   return null;

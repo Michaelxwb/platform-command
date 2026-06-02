@@ -82,7 +82,16 @@ async function fetchStepJson(step, context) {
     }
   }
   const response = await fetch(target, init);
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${target}`);
+  if (!response.ok) {
+    const authHint = [401, 403].includes(response.status)
+      ? 'Authentication failed or session expired; provide valid session cookies/headers (for example Cookie and X-CSRF-Token) or execute through an authenticated browser adapter.'
+      : '';
+    const err = new Error(`HTTP ${response.status} for ${target}${authHint ? ` - ${authHint}` : ''}`);
+    err.status = response.status;
+    err.url = String(target);
+    err.authRequired = [401, 403].includes(response.status);
+    throw err;
+  }
   const body = await response.json();
   const expectedCode = request.expect?.bodyCode;
   if (expectedCode !== undefined && body.code !== expectedCode) throw new Error(`Unexpected body.code ${body.code}: ${body.message || ''}`.trim());

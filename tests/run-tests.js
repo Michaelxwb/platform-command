@@ -608,3 +608,32 @@ try {
 }
 
 console.log('All tests passed.');
+
+
+// Regression: verify supports positional command names for CLI usability.
+const verifyPositional = spawnSync(process.execPath, ['src/cli.js', 'verify', 'github.list_issues'], { cwd: process.cwd(), encoding: 'utf8' });
+assert.equal(verifyPositional.status, 0, verifyPositional.stderr || verifyPositional.stdout);
+assert.equal(JSON.parse(verifyPositional.stdout).ok, true);
+
+// Regression: data_contains can enforce required mapped columns, not only row count.
+const columnAcceptance = evaluateAcceptance({
+  acceptance: { criteria: [{ id: 'columns', type: 'data_contains', expect: { minCount: 1, requiredColumns: ['projectName', 'pmName'] } }] }
+}, { result: { rows: [{ projectName: '人民日报项目', pmName: '张三' }] } });
+assert.equal(columnAcceptance.status, 'passed');
+assert.deepEqual(columnAcceptance.criteria.columns.evidence.missingColumns, []);
+const missingColumnAcceptance = evaluateAcceptance({
+  acceptance: { criteria: [{ id: 'columns', type: 'data_contains', expect: { minCount: 1, requiredColumns: ['projectName', 'pmName'] } }] }
+}, { result: { rows: [{ projectName: '人民日报项目' }] } });
+assert.equal(missingColumnAcceptance.status, 'failed');
+assert.deepEqual(missingColumnAcceptance.criteria.columns.evidence.missingColumns, ['pmName']);
+
+// Regression: Sangfor NL extraction must not treat generic “项目列表” or output clauses as projectName.
+const sangforNoKeyword = parseNaturalLanguage('导出深信服 sdsp 项目列表 前15 条，输出 runs/projects.xlsx');
+assert.equal(sangforNoKeyword.command, 'sangfor.project_list');
+assert.equal(sangforNoKeyword.params.projectName ?? '', '');
+assert.equal(sangforNoKeyword.params.limit, 15);
+assert.equal(sangforNoKeyword.params.outputPath, 'runs/projects.xlsx');
+const sangforKeyword = parseNaturalLanguage('查询 sangfor 项目列表，关键词 攻防演练，输出 runs/projects.xlsx');
+assert.equal(sangforKeyword.command, 'sangfor.project_list');
+assert.equal(sangforKeyword.params.projectName, '攻防演练');
+assert.equal(sangforKeyword.params.outputPath, 'runs/projects.xlsx');

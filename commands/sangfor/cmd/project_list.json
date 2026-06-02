@@ -73,7 +73,10 @@
             "white_customers": 0,
             "pro_sig_time": [],
             "customer_group": -1,
-            "af_amount": ["", ""],
+            "af_amount": [
+              "",
+              ""
+            ],
             "is_participate": 0,
             "is_responsible": 0,
             "order_project_level_name": 0,
@@ -94,13 +97,35 @@
           "itemsPath": "data.list",
           "totalPath": "data.total",
           "map": [
-            { "key": "projectName", "path": "project_name" },
-            { "key": "pmName", "path": "pm_name" },
-            { "key": "customerName", "path": "customer_name" },
-            { "key": "customerIndustry", "path": "customer_industry" },
-            { "key": "projectLevel", "path": "project_level_name" },
-            { "key": "productLine", "path": "product_line_name" },
-            { "key": "createTime", "path": "project_create_time", "transform": "msTime" }
+            {
+              "key": "projectName",
+              "path": "project_name"
+            },
+            {
+              "key": "pmName",
+              "path": "pm_name"
+            },
+            {
+              "key": "customerName",
+              "path": "customer_name"
+            },
+            {
+              "key": "customerIndustry",
+              "path": "customer_industry"
+            },
+            {
+              "key": "projectLevel",
+              "path": "project_level_name"
+            },
+            {
+              "key": "productLine",
+              "path": "product_line_name"
+            },
+            {
+              "key": "createTime",
+              "path": "project_create_time",
+              "transform": "msTime"
+            }
           ]
         }
       }
@@ -114,7 +139,9 @@
     "columnsTemplate": "./templates/project.columns.json"
   },
   "execution": {
-    "prefer": ["api"],
+    "prefer": [
+      "api"
+    ],
     "api": {
       "method": "POST",
       "url": "https://sdsp.atrust.sangfor.com/pms/v1/project/project-list",
@@ -130,7 +157,10 @@
         "keyword": "{{params.projectName}}",
         "is_first": 0,
         "customer_group": -1,
-        "af_amount": ["", ""]
+        "af_amount": [
+          "",
+          ""
+        ]
       }
     }
   },
@@ -144,17 +174,41 @@
       "分页为 offset/limit 递增式，响应不含 next 游标；单页 limit 实测最大 100（>=200 返回 code 1003）。total 随 keyword 变化：空 keyword=2576（全量），keyword=【MSS测试】=1168。",
       "行对象关键字段：project_name, project_id, pm_name, customer_name, customer_industry, customer_province, project_level_name, project_status, product_line_name, service_bill_name, team, project_create_time（13 位毫秒时间戳，需格式化为 datetime，本 command 用 map.transform=msTime）。",
       "鉴权：会话 cookie（含 httpOnly session，由 aTrust 零信任网关维持）+ 请求头 X-CSRF-Token（值取自 csrf_token cookie）。Node 端裸 fetch 无登录态会 401/403。",
-      "执行引擎缺口：当前 src/data_sources.js fetchStepJson 只发 method+headers+query，不发 POST JSON body；collectRows 是 cursor 式分页，不支持 offset 递增。真实导出需要：(1) 引擎支持 request.body 的 POST，(2) offset 分页，(3) 注入会话 cookie 与 X-CSRF-Token。在引擎补齐前，可由支持真实会话的浏览器适配器（如 webbridge）携带登录态直接 POST 该接口执行。",
-      "实测验证（2026-06-02）：经 webbridge 携带 aTrust 会话真实分页调用，keyword=【MSS测试】拉取 1168 条，经项目 exportRows(export_excel) 导出 runs/sangfor-projects.xlsx 成功；project_create_time 确认为 13 位毫秒时间戳。"
+      "实测验证（2026-06-02）：经 webbridge 携带 aTrust 会话真实分页调用，keyword=【MSS测试】拉取 1168 条，经项目 exportRows(export_excel) 导出 runs/sangfor-projects.xlsx 成功；project_create_time 确认为 13 位毫秒时间戳。",
+      "执行引擎已支持 POST JSON body 与 offset/limit 分页；真实执行仍依赖已登录 aTrust 会话 cookie 与 X-CSRF-Token。"
     ]
   },
   "acceptance": {
     "version": "1.0",
     "evidenceRequired": true,
     "criteria": [
-      { "id": "exported_file", "type": "file_exists", "description": "导出的 Excel 文件已生成（按 output.path）。" },
-      { "id": "has_rows", "type": "data_contains", "description": "至少导出 1 条项目记录。", "expect": { "minCount": 1 } },
-      { "id": "keyword_filtered", "type": "manual_check", "description": "导出的项目名称均包含查询关键词，由执行 Agent 核验并回填 evidence。" }
+      {
+        "id": "exported_file",
+        "type": "file_exists",
+        "description": "导出的 Excel 文件已生成（按 output.path）。"
+      },
+      {
+        "id": "has_rows",
+        "type": "data_contains",
+        "description": "至少导出 1 条项目记录，且关键字段列已映射。",
+        "expect": {
+          "minCount": 1,
+          "requiredColumns": [
+            "projectName",
+            "pmName",
+            "customerName",
+            "customerIndustry",
+            "projectLevel",
+            "productLine",
+            "createTime"
+          ]
+        }
+      },
+      {
+        "id": "keyword_filtered",
+        "type": "manual_check",
+        "description": "导出的项目名称均包含查询关键词，由执行 Agent 核验并回填 evidence。"
+      }
     ]
   },
   "successCriteria": [
@@ -171,21 +225,56 @@
   "failureCases": [
     "未登录或 aTrust 会话过期，接口返回 401/403。",
     "缺少 X-CSRF-Token 头或 csrf_token 与会话不匹配，接口校验失败。",
-    "执行引擎未支持 POST body / offset 分页，导致请求体为空或只取首页。",
+    "运行环境未注入有效会话 Cookie 或 CSRF Token，导致接口无法授权。",
     "接口字段结构调整导致映射失败。"
   ],
   "naturalLanguage": {
     "intent": "查询/导出深信服 sdsp 项目列表，支持按项目名称过滤。",
-    "aliases": ["深信服项目列表", "sdsp 项目列表", "安服项目列表导出", "sangfor project list"],
+    "aliases": [
+      "深信服项目列表",
+      "sdsp 项目列表",
+      "安服项目列表导出",
+      "sangfor project list"
+    ],
     "match": {
-      "all": ["项目"],
-      "any": ["深信服", "sdsp", "sangfor", "安服", "atrust"],
-      "verbs": ["列表", "查询", "导出", "获取", "过滤", "搜索"]
+      "all": [
+        "项目"
+      ],
+      "any": [
+        "深信服",
+        "sdsp",
+        "sangfor",
+        "安服",
+        "atrust"
+      ],
+      "verbs": [
+        "列表",
+        "查询",
+        "导出",
+        "获取",
+        "过滤",
+        "搜索"
+      ]
     },
     "extract": {
       "projectName": {
         "type": "after",
-        "pattern": "(?:项目名称?|项目|名称|关键词|搜索)\\s*(?:是|为|=|:|：|包含)?\\s*(.+)$"
+        "pattern": "(?:项目名称?|项目名|关键词|搜索)\\s*(?:是|为|=|:|：|包含)?\\s*([^，。；,;]+)",
+        "marker": [
+          "项目名称",
+          "项目名",
+          "关键词",
+          "搜索"
+        ],
+        "stop": [
+          "，",
+          "。",
+          "；",
+          ",",
+          ";",
+          "/\\s(?:前|最多|limit|数量|输出|保存|导出到|output)\\s/i"
+        ],
+        "cleanup": "sangforProjectName"
       },
       "limit": {
         "type": "number",
@@ -202,5 +291,14 @@
       "导出深信服 sdsp 项目列表，项目名称包含 人民日报",
       "查询 sangfor 项目列表 前15 条，关键词 攻防演练，输出 runs/projects.xlsx"
     ]
+  },
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-sangfor-atrust-session",
+      "csrfToken": "csrf_token cookie -> x-csrf-token header"
+    },
+    "unauthorizedHint": "需要已登录的 aTrust/sdsp 浏览器会话；401/403 时请先刷新登录态并注入 cookie 与 csrf_token。"
   }
 }
