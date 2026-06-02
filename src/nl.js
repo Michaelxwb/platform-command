@@ -7,9 +7,12 @@ export function parseNaturalLanguage(input, options = {}) {
   if (!text) throw new Error('自然语言指令不能为空');
 
   const candidates = [];
-  for (const item of listCommands({ commandsDir: options.commandsDir })) {
+  const commandItems = options.commands || listCommands({ commandsDir: options.commandsDir });
+  for (const item of commandItems) {
     const commandName = typeof item === 'string' ? item : item.name;
-    const { command } = loadCommand(commandName, { commandsDir: options.commandsDir });
+    const command = typeof item === 'string'
+      ? loadCommand(commandName, { commandsDir: options.commandsDir }).command
+      : item;
     if (!command.naturalLanguage) continue;
     const matched = matchCommand(text, command);
     if (!matched.ok) continue;
@@ -123,15 +126,7 @@ function extractValue(text, rule = {}) {
         .sort((a, b) => a.index - b.index)[0];
       if (found) {
         raw = text.slice(found.index + found.item.length);
-        if (rule.stop) {
-          const stops = Array.isArray(rule.stop) ? rule.stop : [rule.stop];
-          const stopIndex = stops
-            .filter(Boolean)
-            .map((item) => (item instanceof RegExp ? raw.search(item) : raw.search(escapeRegExp(item))))
-            .filter((idx) => idx >= 0)
-            .sort((a, b) => a - b)[0];
-          if (stopIndex !== undefined) raw = raw.slice(0, stopIndex);
-        }
+        raw = applyAfterStop(raw, rule.stop);
       }
     }
     raw = cleanupText(raw || '', rule.cleanup);
@@ -143,6 +138,27 @@ function extractValue(text, rule = {}) {
     return undefined;
   }
   return undefined;
+}
+
+
+function applyAfterStop(value, stop) {
+  let raw = String(value || '');
+  const stops = Array.isArray(stop) ? stop : [stop];
+  const stopIndex = stops
+    .filter(Boolean)
+    .map((item) => {
+      if (item instanceof RegExp) return raw.search(item);
+      const text = String(item);
+      if (text.startsWith('/') && text.lastIndexOf('/') > 0) {
+        const last = text.lastIndexOf('/');
+        try { return raw.search(new RegExp(text.slice(1, last), text.slice(last + 1) || 'i')); } catch { return -1; }
+      }
+      return raw.indexOf(text);
+    })
+    .filter((idx) => idx >= 0)
+    .sort((a, b) => a - b)[0];
+  if (stopIndex !== undefined) raw = raw.slice(0, stopIndex);
+  return raw;
 }
 
 function regexGroup(text, pattern, group = 1) {

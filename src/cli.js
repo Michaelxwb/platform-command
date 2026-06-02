@@ -46,6 +46,15 @@ function parseArgs(argv) {
   return out;
 }
 
+function extractExecuteParams(args) {
+  const params = parseKeyValues(args._);
+  const reserved = new Set(['_', 'command', 'commandsDir', 'dryRun', 'confirm', 'headed', 'executeReal', 'json']);
+  for (const [key, value] of Object.entries(args)) {
+    if (!reserved.has(key)) params[key] = value;
+  }
+  return params;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const cmd = argv[0];
@@ -79,7 +88,7 @@ async function main() {
   }
   if (cmd === 'execute') {
     if (!args.command) throw new Error('execute requires --command');
-    const params = parseKeyValues(args._);
+    const params = extractExecuteParams(args);
     if (args.dryRun && args.executeReal) throw new Error('--dry-run and --execute-real cannot be used together');
     if (args.executeReal && !args.confirm) throw new Error('--execute-real requires --confirm');
     const result = await executeCommand(args.command, params, { dryRun: !args.executeReal, confirm: !!args.confirm, commandsDir: args.commandsDir });
@@ -92,15 +101,16 @@ async function main() {
       action: args.action,
       url: args.url,
       observeSeconds: args.observeSeconds,
+      provider: args.provider,
       headless: !args.headed
     });
-    printJson({ status: result.status, runDir: result.runDir, title: result.report.domSummary.title, requestCount: result.report.network.requests.length });
+    printJson(result);
     return;
   }
   throw new Error(`Unknown command: ${cmd}`);
 }
 
 main().catch((err) => {
-  console.error(`[platform-command] ${err.stack || err.message}`);
+  console.error(`[platform-command] ${err.message}`);
   process.exit(1);
 });

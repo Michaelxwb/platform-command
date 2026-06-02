@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import readline from 'node:readline';
+import { createRequire } from 'node:module';
 import { listCommands, loadCommand } from './command_store.js';
 import { executeCommand, getExecutionCapability } from './execute.js';
 import { verifyCommand } from './verify.js';
 
-const SERVER_INFO = { name: 'platform-command', version: '0.3.0' };
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
+const SERVER_INFO = { name: 'platform-command', version: pkg.version };
 
 export const MCP_TOOLS = [
   {

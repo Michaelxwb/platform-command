@@ -10,12 +10,31 @@ export function getExecutionCapability(command) {
     return {
       executable: true,
       engine: 'auto_capability',
+      mode: 'auto',
       reason: 'Command has dataSource plus output.capability and can be executed by the built-in capability engine.'
+    };
+  }
+  const recipe = normalizeRecipe(command);
+  if (recipe?.steps?.some((step) => step.type === 'api')) {
+    return {
+      executable: false,
+      engine: 'workflow',
+      mode: 'api_plan',
+      reason: 'Workflow contains API steps but no real workflow execution engine is available yet; dry-run planning is supported.'
+    };
+  }
+  if (recipe?.steps?.some((step) => step.type === 'ui')) {
+    return {
+      executable: false,
+      engine: 'workflow',
+      mode: 'ui_plan',
+      reason: 'Workflow contains UI steps but no real workflow execution engine is available yet; dry-run planning is supported.'
     };
   }
   return {
     executable: false,
     engine: null,
+    mode: 'none',
     reason: 'No real execution engine is available for this command shape; use dry-run workflow plans or add dataSource plus output.capability.'
   };
 }
@@ -40,7 +59,7 @@ export async function executeCommand(commandName, providedParams = {}, options =
   if (!options.confirm) throw new Error('Real execution is disabled unless --confirm is provided. High-risk steps may require additional confirmation.');
   const capability = getExecutionCapability(command);
   if (capability.executable) return executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
-  throw new Error(capability.reason);
+  throw new Error(`Not executable: ${capability.reason}`);
 }
 
 function buildExecutionPlan(command, params, options = {}) {

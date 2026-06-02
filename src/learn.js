@@ -60,10 +60,11 @@ async function playwrightLearn(options) {
     candidateParameters: suggestions.candidateParameters,
     suggestedWorkflow: suggestions.suggestedWorkflow
   });
-  writeJson(path.join(runDir, 'learn_report.json'), report);
+  const reportPath = path.join(runDir, 'learn_report.json');
+  writeJson(reportPath, report);
   await page.screenshot({ path: path.join(runDir, 'page.png'), fullPage: true }).catch(() => null);
   await browser.close();
-  return { status: 'learned', provider: 'playwright', runDir, report };
+  return learnResult({ status: 'learned', provider: 'playwright', runDir, report, reportPath });
 }
 
 async function httpLearn(options, reason = 'fallback') {
@@ -97,8 +98,26 @@ async function httpLearn(options, reason = 'fallback') {
       'Use this report as a skeleton, then add selectors/API calls manually or rerun with Playwright/browser provider.'
     ]
   });
-  writeJson(path.join(runDir, 'learn_report.json'), report);
-  return { status: 'learned_fallback', provider: 'http', runDir, report };
+  const reportPath = path.join(runDir, 'learn_report.json');
+  writeJson(reportPath, report);
+  return learnResult({ status: 'learned_fallback', provider: 'http', runDir, report, reportPath });
+}
+
+
+export function learnResult({ status, provider, runDir, report, reportPath }) {
+  return {
+    status,
+    provider,
+    runDir,
+    report,
+    artifacts: { reportPath },
+    summary: {
+      title: report.domSummary?.title || '',
+      requestCount: report.network?.requests?.length || 0,
+      responseCount: report.network?.responses?.length || 0,
+      candidateParameterCount: report.candidateParameters?.length || 0
+    }
+  };
 }
 
 function manualLearn(options, reason = 'fallback') {
@@ -125,8 +144,9 @@ function manualLearn(options, reason = 'fallback') {
       'Ask the host agent/user to observe the page and fill selectors/API requests into the command JSON.'
     ]
   });
-  writeJson(path.join(runDir, 'learn_report.json'), report);
-  return { status: 'learned_fallback', provider: 'manual', runDir, report };
+  const reportPath = path.join(runDir, 'learn_report.json');
+  writeJson(reportPath, report);
+  return learnResult({ status: 'learned_fallback', provider: 'manual', runDir, report, reportPath });
 }
 
 function baseReport(meta, data) {

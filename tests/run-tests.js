@@ -2,19 +2,38 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { listCommands, loadCommand, mergeParams } from '../src/command_store.js';
 import { resolveCommandParams } from '../src/params_resolver.js';
 import { buildWorkflowPlan, renderValue } from '../src/workflow.js';
 import { verifyCommand } from '../src/verify.js';
 import { formatHumanReadable, parseNaturalLanguage } from '../src/nl.js';
-import { learnAction } from '../src/learn.js';
+import { learnAction, learnResult } from '../src/learn.js';
 import { handleMcpRequest } from '../src/mcp_server.js';
 import { exportRows } from '../src/exporters.js';
 import { readDataSource } from '../src/data_sources.js';
 import { executeCommand, getExecutionCapability } from '../src/execute.js';
 import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
+
 const commandsDir = path.join(process.cwd(), 'commands');
+
+
+const afterBoundaryCommand = {
+  name: 'demo.after_boundary',
+  naturalLanguage: {
+    examples: ['发布小红书内容'],
+    match: { all: ['发布'], any: ['小红书'], verbs: ['发布'] },
+    extract: {
+      content: { type: 'after', marker: ['内容'], stop: ['，'], cleanup: 'autoPublishClause' },
+      autoPublish: { type: 'booleanKeyword', true: ['自动发布'], false: ['不发布'] }
+    }
+  }
+};
+assert.deepEqual(parseNaturalLanguage('发布小红书内容 今天很好，不发布', { commands: [afterBoundaryCommand] }).params, { content: '今天很好', autoPublish: false });
+assert.deepEqual(parseNaturalLanguage('发布小红书内容 今天很好，自动发布', { commands: [afterBoundaryCommand] }).params, { content: '今天很好', autoPublish: true });
 
 const typedRenderContext = { params: { limit: 5, enabled: false, nested: { count: 2 } }, steps: {}, warnings: [] };
 assert.equal(renderValue('{{limit}}', typedRenderContext), 5);
@@ -404,9 +423,13 @@ try {
 
 
 const autoExecutionCommand = { name: 'demo.auto_exec', dataSource: { type: 'inline', rows: [] }, output: { capability: 'return_json' } };
-assert.deepEqual(getExecutionCapability(autoExecutionCommand), { executable: true, engine: 'auto_capability', reason: 'Command has dataSource plus output.capability and can be executed by the built-in capability engine.' });
-const blockedExecutionCommand = { name: 'demo.workflow_only', execution: { workflow: { steps: [{ type: 'api', request: { url: 'https://example.test' } }] } } };
-assert.deepEqual(getExecutionCapability(blockedExecutionCommand), { executable: false, engine: null, reason: 'No real execution engine is available for this command shape; use dry-run workflow plans or add dataSource plus output.capability.' });
+assert.deepEqual(getExecutionCapability(autoExecutionCommand), { executable: true, engine: 'auto_capability', mode: 'auto', reason: 'Command has dataSource plus output.capability and can be executed by the built-in capability engine.' });
+const apiWorkflowCommand = { name: 'demo.api_workflow', execution: { workflow: { steps: [{ type: 'api', request: { url: 'https://example.test' } }] } } };
+assert.deepEqual(getExecutionCapability(apiWorkflowCommand), { executable: false, engine: 'workflow', mode: 'api_plan', reason: 'Workflow contains API steps but no real workflow execution engine is available yet; dry-run planning is supported.' });
+const uiWorkflowCommand = { name: 'demo.ui_workflow', execution: { workflow: { steps: [{ type: 'ui', action: 'click', selector: '#go' }] } } };
+assert.deepEqual(getExecutionCapability(uiWorkflowCommand), { executable: false, engine: 'workflow', mode: 'ui_plan', reason: 'Workflow contains UI steps but no real workflow execution engine is available yet; dry-run planning is supported.' });
+const blockedExecutionCommand = { name: 'demo.workflow_only', execution: { workflow: { steps: [{ type: 'manual', manual: 'Inspect manually' }] } } };
+assert.deepEqual(getExecutionCapability(blockedExecutionCommand), { executable: false, engine: null, mode: 'none', reason: 'No real execution engine is available for this command shape; use dry-run workflow plans or add dataSource plus output.capability.' });
 const blockedPlanDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-blocked-plan-'));
 try {
   fs.writeFileSync(path.join(blockedPlanDir, 'demo.workflow_only.json'), JSON.stringify(blockedExecutionCommand, null, 2));
@@ -418,10 +441,12 @@ try {
 
 const initResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 10, method: 'initialize', params: {} });
 assert.deepEqual(initResponse.result.capabilities, { tools: {}, resources: {}, prompts: {} });
+assert.equal(initResponse.result.serverInfo.version, pkg.version);
 const describeResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 15, method: 'tools/call', params: { name: 'platform_command_describe', arguments: { command: 'demo.search_example' } } });
 const describedCommand = JSON.parse(describeResponse.result.content[0].text);
 assert.equal(describedCommand.execution.executable, false);
 assert.equal(describedCommand.execution.engine, null);
+assert.equal(describedCommand.execution.mode, 'none');
 
 const resourcesResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 11, method: 'resources/list' });
 assert.ok(resourcesResponse.result.resources.some((resource) => resource.uri === 'platform-command://commands'));
@@ -437,7 +462,36 @@ assert.equal(manualLearn.status, 'learned_fallback');
 assert.equal(manualLearn.provider, 'manual');
 assert.equal(manualLearn.report.provider, 'manual');
 assert.ok(manualLearn.report.fallbackInstructions.length > 0);
+assert.ok(manualLearn.artifacts.reportPath.endsWith('learn_report.json'));
+assert.equal(manualLearn.summary.requestCount, 0);
+
+const playwrightContract = learnResult({
+  status: 'learned',
+  provider: 'playwright',
+  runDir: '/tmp/platform-command-playwright-contract',
+  reportPath: '/tmp/platform-command-playwright-contract/learn_report.json',
+  report: {
+    domSummary: { title: 'Playwright page' },
+    network: { requests: [{ url: 'https://example.com' }], responses: [{ status: 200 }] },
+    candidateParameters: [{ name: 'keyword' }]
+  }
+});
+assert.equal(playwrightContract.status, 'learned');
+assert.equal(playwrightContract.provider, 'playwright');
+assert.equal(playwrightContract.artifacts.reportPath, '/tmp/platform-command-playwright-contract/learn_report.json');
+assert.deepEqual(playwrightContract.summary, { title: 'Playwright page', requestCount: 1, responseCount: 1, candidateParameterCount: 1 });
 fs.rmSync(manualLearn.runDir, { recursive: true, force: true });
+
+const manualCliRun = spawnSync('node', ['src/cli.js', 'learn', '--url', 'https://example.com', '--platform', 'demo', '--action', 'manual_cli', '--provider', 'manual'], { encoding: 'utf8' });
+assert.equal(manualCliRun.status, 0, manualCliRun.stderr);
+const manualCliPayload = JSON.parse(manualCliRun.stdout);
+assert.equal(manualCliPayload.provider, 'manual');
+assert.equal(manualCliPayload.status, 'learned_fallback');
+fs.rmSync(manualCliPayload.runDir, { recursive: true, force: true });
+
+const badExecuteRun = spawnSync('node', ['src/cli.js', 'execute', '--command', 'demo.workflow_example', '--keyword', 'abc', '--execute-real', '--confirm'], { encoding: 'utf8' });
+assert.notEqual(badExecuteRun.status, 0);
+assert.match(badExecuteRun.stderr, /Not executable/);
 
 
 const http = await import('node:http');
