@@ -1,7 +1,7 @@
 import { commandResourceRoot, loadCommand } from './command_store.js';
 import { resolveCommandParams } from './params_resolver.js';
 import { buildWorkflowPlan, normalizeRecipe, renderValue } from './workflow.js';
-import { buildAcceptanceContract, initializeAcceptanceEvidence } from './acceptance.js';
+import { buildAcceptanceContract, initializeAcceptanceEvidence, evaluateAcceptance } from './acceptance.js';
 import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
 import { executeAutoCapability, hasAutoCapability } from './capabilities.js';
@@ -59,7 +59,11 @@ export async function executeCommand(commandName, providedParams = {}, options =
   }
   if (!options.confirm) throw new Error('Real execution is disabled unless --confirm is provided. High-risk steps may require additional confirmation.');
   const capability = getExecutionCapability(command);
-  if (capability.executable) return executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
+  if (capability.executable) {
+    const result = await executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
+    const acceptance = evaluateAcceptance(command, { evidence: options.evidence || {}, result });
+    return { ...result, acceptance };
+  }
   throw new Error(`Not executable: ${capability.reason}`);
 }
 
@@ -67,7 +71,12 @@ function buildExecutionPlan(command, params, options = {}) {
   const capability = getExecutionCapability(command);
   if (normalizeRecipe(command)) {
     const plan = buildWorkflowPlan(command, params, options);
-    return { ...plan, execution: capability };
+    return {
+      ...plan,
+      execution: capability,
+      acceptance: buildAcceptanceContract(command),
+      acceptanceEvidence: initializeAcceptanceEvidence(command)
+    };
   }
   const prefer = command.execution?.prefer || [];
   const steps = [];

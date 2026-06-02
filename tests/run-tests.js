@@ -13,6 +13,7 @@ import { handleMcpRequest } from '../src/mcp_server.js';
 import { exportRows } from '../src/exporters.js';
 import { readDataSource } from '../src/data_sources.js';
 import { executeCommand, getExecutionCapability } from '../src/execute.js';
+import { evaluateAcceptance } from '../src/acceptance.js';
 import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
 const require = createRequire(import.meta.url);
@@ -544,6 +545,66 @@ try {
   assert.equal(postData.meta.echoed, capturedPostBody);
 } finally {
   await new Promise((resolve) => postBodyServer.close(resolve));
+}
+
+// --- acceptance enforcement (S-2): machine-checkable auto-verify + agent evidence ---
+{
+  const accCmd = {
+    acceptance: { criteria: [
+      { id: 'file', type: 'file_exists', description: 'exported file' },
+      { id: 'rows', type: 'data_contains', description: 'has rows', expect: { minCount: 2 } },
+      { id: 'manual', type: 'manual_check', description: 'agent verifies' }
+    ] }
+  };
+  const accFile = path.join(process.cwd(), '.tmp-acceptance.txt');
+  fs.writeFileSync(accFile, 'x');
+  // file ok + rows ok + manual not filled => incomplete (不静默成功)
+  let rep = evaluateAcceptance(accCmd, { result: { outputPath: accFile, rows: 3 } });
+  assert.equal(rep.criteria.file.status, 'passed');
+  assert.equal(rep.criteria.rows.status, 'passed');
+  assert.equal(rep.criteria.manual.status, 'pending');
+  assert.equal(rep.status, 'incomplete');
+  // agent fills manual evidence => passed
+  rep = evaluateAcceptance(accCmd, { result: { outputPath: accFile, rows: 3 }, evidence: { manual: { note: 'verified' } } });
+  assert.equal(rep.criteria.manual.status, 'passed');
+  assert.equal(rep.status, 'passed');
+  // not enough rows => failed
+  rep = evaluateAcceptance(accCmd, { result: { outputPath: accFile, rows: 1 }, evidence: { manual: { note: 'v' } } });
+  assert.equal(rep.criteria.rows.status, 'failed');
+  assert.equal(rep.status, 'failed');
+  // missing file => failed
+  fs.rmSync(accFile);
+  rep = evaluateAcceptance(accCmd, { result: { outputPath: accFile, rows: 3 }, evidence: { manual: { note: 'v' } } });
+  assert.equal(rep.criteria.file.status, 'failed');
+  assert.equal(rep.status, 'failed');
+  // no criteria => not_required
+  assert.equal(evaluateAcceptance({}, { result: {} }).status, 'not_required');
+  // optional criterion does not block a passing required one
+  const optRep = evaluateAcceptance({ acceptance: { criteria: [
+    { id: 'req', type: 'data_contains', expect: { minCount: 1 } },
+    { id: 'opt', type: 'manual_check', description: 'o', optional: true }
+  ] } }, { result: { rows: 2 } });
+  assert.equal(optRep.criteria.opt.status, 'optional');
+  assert.equal(optRep.criteria.req.status, 'passed');
+  assert.equal(optRep.status, 'passed');
+}
+
+// --- acceptance integration through executeCommand (real run attaches report) ---
+{
+  const accDir = path.join(process.cwd(), '.tmp-acc-cmd');
+  fs.rmSync(accDir, { recursive: true, force: true });
+  fs.mkdirSync(accDir, { recursive: true });
+  fs.writeFileSync(path.join(accDir, 'demo.acc.json'), JSON.stringify({
+    name: 'demo.acc', platform: 'demo', description: 'acc demo', riskLevel: 'low', parameters: {},
+    dataSource: { type: 'inline', rows: [{ a: 1 }, { a: 2 }] },
+    output: { capability: 'return_json', title: 't' },
+    acceptance: { criteria: [{ id: 'rows', type: 'data_contains', description: 'has rows', expect: { minCount: 1 } }] }
+  }));
+  const res = await executeCommand('demo.acc', {}, { dryRun: false, confirm: true, commandsDir: accDir });
+  assert.equal(res.status, 'executed');
+  assert.equal(res.acceptance.status, 'passed');
+  assert.equal(res.acceptance.criteria.rows.status, 'passed');
+  fs.rmSync(accDir, { recursive: true, force: true });
 }
 
 console.log('All tests passed.');

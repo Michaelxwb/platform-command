@@ -1,0 +1,9 @@
+[
+  { "key": "projectName", "title": "项目名称" },
+  { "key": "pmName", "title": "项目经理" },
+  { "key": "customerName", "title": "客户名称" },
+  { "key": "customerIndustry", "title": "客户行业" },
+  { "key": "projectLevel", "title": "项目级别" },
+  { "key": "productLine", "title": "产品线" },
+  { "key": "createTime", "title": "创建时间" }
+]

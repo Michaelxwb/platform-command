@@ -125,6 +125,7 @@ function mapItem(item, mappings) {
   for (const mapping of mappings) {
     let value = getPath(item, mapping.path);
     if (mapping.transform === 'unixTime') value = formatUnixTime(value);
+    else if (mapping.transform === 'msTime') value = formatUnixTime(Number(value) / 1000);
     else if (mapping.transform === 'number') value = Number(value || 0);
     out[mapping.key] = value ?? '';
   }

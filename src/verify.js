@@ -1,9 +1,8 @@
 import { loadCommand } from './command_store.js';
-import { UI_ACTIONS, findTemplateExpressions, normalizeRecipe } from './workflow.js';
+import { UI_ACTIONS, findTemplateExpressions, normalizeRecipe, normalizeDependsOn } from './workflow.js';
 import { ACCEPTANCE_TYPES, normalizeAcceptanceCriteria } from './acceptance.js';
 import { normalizeCapability } from './exporters.js';
-
-const JSON_OUTPUT_CAPABILITIES = new Set(['return_json', 'save_json']);
+import { JSON_CAPABILITIES } from './capabilities.js';
 
 const REQUIRED_TOP_LEVEL = ['name', 'platform', 'description', 'riskLevel', 'parameters'];
 const RISK_LEVELS = new Set(['low', 'medium', 'high']);
@@ -79,7 +78,7 @@ function validateOutput(command, errors) {
     return;
   }
   if (!output.capability) errors.push('output.capability is required');
-  if (output.capability && typeof output.capability === 'string' && !output.capability.includes('{{') && !normalizeCapability(output.capability) && !JSON_OUTPUT_CAPABILITIES.has(output.capability)) {
+  if (output.capability && typeof output.capability === 'string' && !output.capability.includes('{{') && !normalizeCapability(output.capability) && !JSON_CAPABILITIES.has(output.capability)) {
     errors.push(`output.capability is unsupported: ${output.capability}`);
   }
   if (!output.path && output.capability !== 'return_json') errors.push('output.path is required');
@@ -286,11 +285,6 @@ function validateKnownParameterTemplates(value, command, prefix, errors) {
     if (/^[a-zA-Z0-9_]+$/.test(expr) && !paramNames.has(expr)) errors.push(`${prefix} references unknown parameter template: ${expr}`);
     if (expr.startsWith('params.') && !paramNames.has(expr.slice('params.'.length))) errors.push(`${prefix} references unknown parameter template: ${expr}`);
   }
-}
-
-function normalizeDependsOn(dependsOn) {
-  if (!dependsOn) return [];
-  return Array.isArray(dependsOn) ? dependsOn : [dependsOn];
 }
 
 function matchesType(value, type) {

@@ -8,7 +8,7 @@ export function hasAutoCapability(command) {
   return Boolean(command?.dataSource && command?.output?.capability);
 }
 
-const JSON_CAPABILITIES = new Set(['return_json', 'save_json']);
+export const JSON_CAPABILITIES = new Set(['return_json', 'save_json']);
 
 export async function executeAutoCapability(command, params, options = {}) {
   if (!hasAutoCapability(command)) return null;

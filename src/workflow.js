@@ -132,7 +132,7 @@ function inferStepType(step) {
   return 'manual';
 }
 
-function normalizeDependsOn(dependsOn) {
+export function normalizeDependsOn(dependsOn) {
   if (!dependsOn) return [];
   return Array.isArray(dependsOn) ? dependsOn : [dependsOn];
 }
