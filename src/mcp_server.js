@@ -5,6 +5,10 @@ import { listCommands, loadCommand } from './command_store.js';
 import { executeCommand, getExecutionCapability } from './execute.js';
 import { learnAction } from './learn.js';
 import { verifyCommand } from './verify.js';
+import { buildAgentManifest, describeCommand, explainNaturalLanguage } from './describe.js';
+import { doctorCommand } from './doctor.js';
+import { buildScheduleSpec } from './schedule.js';
+import { generateCommandDocs } from './docs.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -29,6 +33,21 @@ export const MCP_TOOLS = [
     }
   },
   {
+    name: 'platform_command_explain',
+    description: 'Explain a natural language request and show the selected command, params, and clarification needs.',
+    inputSchema: { type: 'object', required: ['input'], properties: { input: { type: 'string' } } }
+  },
+  {
+    name: 'platform_command_agent_manifest',
+    description: 'Return an agent-friendly manifest of available commands.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'platform_command_doctor',
+    description: 'Run command health checks.',
+    inputSchema: { type: 'object', required: ['command'], properties: { command: { type: 'string' } } }
+  },
+  {
     name: 'platform_command_verify',
     description: 'Validate a command definition and workflow structure.',
     inputSchema: {
@@ -50,6 +69,20 @@ export const MCP_TOOLS = [
         confirm: { type: 'boolean', default: false }
       }
     }
+  },
+  {
+    name: 'platform_command_schedule',
+    description: 'Generate an advisory host-scheduler specification for running a platform command. Does not install tasks.',
+    inputSchema: {
+      type: 'object',
+      required: ['command', 'cron'],
+      properties: { command: { type: 'string' }, cron: { type: 'string' }, timezone: { type: 'string' }, params: { type: 'object' }, dryRun: { type: 'boolean' }, confirm: { type: 'boolean' } }
+    }
+  },
+  {
+    name: 'platform_command_docs',
+    description: 'Generate markdown documentation for available platform-command definitions.',
+    inputSchema: { type: 'object', properties: { outputPath: { type: 'string' } } }
   },
   {
     name: 'platform_command_learn',
@@ -136,6 +169,11 @@ async function callTool(name, args) {
     const result = await executeCommand(args.command, args.params || {}, { dryRun, confirm: !!args.confirm });
     return toolResult(result);
   }
+  if (name === 'platform_command_explain') return toolResult(explainNaturalLanguage(args.input || ''));
+  if (name === 'platform_command_agent_manifest') return toolResult(buildAgentManifest());
+  if (name === 'platform_command_doctor') return toolResult(doctorCommand(args.command));
+  if (name === 'platform_command_schedule') return toolResult(buildScheduleSpec({ command: args.command, cron: args.cron, timezone: args.timezone, params: args.params || {}, dryRun: args.dryRun !== false, confirm: !!args.confirm }));
+  if (name === 'platform_command_docs') return toolResult(generateCommandDocs({ outputPath: args.outputPath }));
   if (name === 'platform_command_learn') {
     const result = await learnAction({
       url: args.url,

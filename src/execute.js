@@ -5,6 +5,7 @@ import { buildAcceptanceContract, initializeAcceptanceEvidence, evaluateAcceptan
 import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
 import { executeAutoCapability, hasAutoCapability } from './capabilities.js';
+import { recordRun } from './runs.js';
 
 export function getExecutionCapability(command) {
   if (hasAutoCapability(command)) {
@@ -46,7 +47,7 @@ export async function executeCommand(commandName, providedParams = {}, options =
   const dryRun = options.dryRun !== false;
   const plan = buildExecutionPlan(command, params, { failOnUnresolvedTemplates: options.dryRun === false });
   if (dryRun) {
-    return {
+    const response = {
       status: 'dry_run',
       file,
       command: command.name,
@@ -56,13 +57,55 @@ export async function executeCommand(commandName, providedParams = {}, options =
       session: describeSessionRef(plan.sessionRef || command.sessionRef),
       plan
     };
+    const recorded = recordRun({
+      command: command.name,
+      status: response.status,
+      dryRun: true,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      riskLevel: command.riskLevel,
+      params,
+      paramsMeta,
+      result: response
+    });
+    return { ...response, runId: recorded.id, runFile: recorded.file };
   }
   if (!options.confirm) throw new Error('Real execution is disabled unless --confirm is provided. High-risk steps may require additional confirmation.');
   const capability = getExecutionCapability(command);
   if (capability.executable) {
-    const result = await executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
-    const acceptance = evaluateAcceptance(command, { evidence: options.evidence || {}, result });
-    return { ...result, acceptance };
+    const startedAt = new Date().toISOString();
+    try {
+      const result = await executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
+      const acceptance = evaluateAcceptance(command, { evidence: options.evidence || {}, result });
+      const response = { ...result, acceptance };
+      const recorded = recordRun({
+        command: command.name,
+        status: response.status || (acceptance.ok ? 'success' : 'failed'),
+        dryRun: false,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        riskLevel: command.riskLevel,
+        params,
+        paramsMeta,
+        result: response
+      });
+      return { ...response, runId: recorded.id, runFile: recorded.file };
+    } catch (err) {
+      const recorded = recordRun({
+        command: command.name,
+        status: 'error',
+        dryRun: false,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        riskLevel: command.riskLevel,
+        params,
+        paramsMeta,
+        error: err.message
+      });
+      err.runId = recorded.id;
+      err.runFile = recorded.file;
+      throw err;
+    }
   }
   throw new Error(`Not executable: ${capability.reason}`);
 }

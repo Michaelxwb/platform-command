@@ -12,8 +12,9 @@ import { learnAction, learnResult } from '../src/learn.js';
 import { handleMcpRequest } from '../src/mcp_server.js';
 import { exportRows } from '../src/exporters.js';
 import { readDataSource } from '../src/data_sources.js';
-import { executeCommand, getExecutionCapability } from '../src/execute.js';
 import { evaluateAcceptance } from '../src/acceptance.js';
+import { executeCommand, getExecutionCapability } from '../src/execute.js';
+import { doctorCommand } from '../src/doctor.js';
 import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
 const require = createRequire(import.meta.url);
@@ -125,6 +126,12 @@ const parsed = JSON.parse(dry);
 assert.equal(parsed.status, 'dry_run');
 assert.equal(parsed.params.keyword, 'abc');
 assert.equal(parsed.params.page, 1);
+assert.ok(parsed.runId, 'dry-run execution should record a run id');
+
+const runsJson = JSON.parse(execFileSync('node', ['src/cli.js', 'runs', '--json'], { encoding: 'utf8' }));
+assert.equal(typeof runsJson.total, 'number');
+assert.ok(Array.isArray(runsJson.runs));
+assert.ok(runsJson.runs.some((run) => run.id === parsed.runId), 'runs should include dry-run execution record');
 
 const conflict = spawnSync('node', ['src/cli.js', 'execute', '--command', 'demo.search_example', '--dry-run', '--execute-real', 'keyword=abc'], { encoding: 'utf8' });
 assert.notEqual(conflict.status, 0);
@@ -434,8 +441,28 @@ try {
 }
 
 
-const autoExecutionCommand = { name: 'demo.auto_exec', dataSource: { type: 'inline', rows: [] }, output: { capability: 'return_json' } };
+const autoExecutionCommand = {
+  name: 'demo.auto_exec',
+  platform: 'demo',
+  description: 'Auto executable demo command',
+  riskLevel: 'low',
+  parameters: {},
+  execution: { prefer: ['api'] },
+  auth: null,
+  naturalLanguage: { examples: ['auto exec demo'], match: { any: ['auto'] } },
+  dataSource: { type: 'inline', rows: [] },
+  output: { capability: 'return_json' }
+};
 assert.deepEqual(getExecutionCapability(autoExecutionCommand), { executable: true, engine: 'auto_capability', mode: 'auto', reason: 'Command has dataSource plus output.capability and can be executed by the built-in capability engine.' });
+const autoDoctorDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-auto-doctor-'));
+try {
+  fs.writeFileSync(path.join(autoDoctorDir, 'demo.auto_exec.json'), JSON.stringify(autoExecutionCommand, null, 2));
+  const autoDoctor = doctorCommand('demo.auto_exec', { commandsDir: autoDoctorDir });
+  assert.equal(autoDoctor.ok, true);
+  assert.equal(autoDoctor.checks.find((check) => check.name === 'execution.capability')?.ok, true);
+} finally {
+  fs.rmSync(autoDoctorDir, { recursive: true, force: true });
+}
 const apiWorkflowCommand = { name: 'demo.api_workflow', execution: { workflow: { steps: [{ type: 'api', request: { url: 'https://example.test' } }] } } };
 assert.deepEqual(getExecutionCapability(apiWorkflowCommand), { executable: false, engine: 'workflow', mode: 'api_plan', reason: 'Workflow contains API steps but no real workflow execution engine is available yet; dry-run planning is supported.' });
 const uiWorkflowCommand = { name: 'demo.ui_workflow', execution: { workflow: { steps: [{ type: 'ui', action: 'click', selector: '#go' }] } } };
@@ -637,3 +664,15 @@ const sangforKeyword = parseNaturalLanguage('查询 sangfor 项目列表，关�
 assert.equal(sangforKeyword.command, 'sangfor.project_list');
 assert.equal(sangforKeyword.params.projectName, '攻防演练');
 assert.equal(sangforKeyword.params.outputPath, 'runs/projects.xlsx');
+
+
+const scheduleJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--json', 'keyword=abc'], { encoding: 'utf8' }));
+assert.equal(scheduleJson.kind, 'platform_command_schedule');
+assert.equal(scheduleJson.command, 'demo.search_example');
+assert.equal(scheduleJson.dryRun, true);
+assert.ok(scheduleJson.shellCommand.includes('demo.search_example'));
+assert.ok(scheduleJson.systemAdapters.cron.includes('0 9 * * *'));
+
+const docsJson = JSON.parse(execFileSync('node', ['src/cli.js', 'docs', '--json'], { encoding: 'utf8' }));
+assert.ok(docsJson.commands > 0);
+assert.ok(docsJson.markdown.includes('demo.search_example'));

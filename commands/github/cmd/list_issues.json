@@ -89,9 +89,7 @@
       "GitHub 工单"
     ],
     "match": {
-      "all": [
-        "github"
-      ],
+      "all": [],
       "any": [
         "issue",
         "issues",
@@ -136,7 +134,8 @@
       }
     },
     "examples": [
-      "在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all"
+      "在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all",
+      "查询 platform-command 的 issue"
     ]
   },
   "dataSource": {
