@@ -1,24 +1,31 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, redactSensitive } from './utils.js';
+import { redactSensitive } from './utils.js';
 
-const RUNS_DIR = path.join(ROOT, '.platform-command', 'runs');
+// Run records belong to the consuming project, not the package install dir
+// (which may be read-only under a global install). Resolve under cwd at call time.
+function runsDir() {
+  return path.join(process.cwd(), '.platform-command', 'runs');
+}
 
 export function recordRun(run) {
-  fs.mkdirSync(RUNS_DIR, { recursive: true });
+  const dir = runsDir();
+  fs.mkdirSync(dir, { recursive: true });
   const id = run.id || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const file = path.join(dir, `${id}.json`);
   const payload = redactSensitive({ id, createdAt: new Date().toISOString(), ...run });
-  fs.writeFileSync(path.join(RUNS_DIR, `${id}.json`), JSON.stringify(payload, null, 2));
-  return payload;
+  fs.writeFileSync(file, JSON.stringify(payload, null, 2));
+  return { ...payload, file };
 }
 
 export function listRuns(options = {}) {
-  if (!fs.existsSync(RUNS_DIR)) return [];
-  return fs.readdirSync(RUNS_DIR)
+  const dir = runsDir();
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
     .filter((name) => name.endsWith('.json'))
     .sort()
     .slice(-(Number(options.limit) || 20))
-    .map((name) => JSON.parse(fs.readFileSync(path.join(RUNS_DIR, name), 'utf8')));
+    .map((name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')));
 }
 
 export function summarizeRuns(options = {}) {

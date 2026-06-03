@@ -13,9 +13,11 @@ import { handleMcpRequest } from '../src/mcp_server.js';
 import { exportRows } from '../src/exporters.js';
 import { readDataSource } from '../src/data_sources.js';
 import { evaluateAcceptance } from '../src/acceptance.js';
-import { executeCommand, getExecutionCapability } from '../src/execute.js';
-import { buildScheduleSpec, installSchedule, listSchedules, getScheduleStatus, removeSchedule } from '../src/schedule.js';
-import { doctorCommand } from '../src/doctor.js';
+import { executeCommand, getExecutionCapability, planCommand } from '../src/execute.js';
+import { buildScheduleSpec, installSchedule, listSchedules, getScheduleStatus, removeSchedule, cronToSchtasks } from '../src/schedule.js';
+import { requiresBrowser } from '../src/requirements.js';
+import { doctorCommand, doctorAll } from '../src/doctor.js';
+import { describeCommand } from '../src/describe.js';
 import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
 const require = createRequire(import.meta.url);
@@ -633,6 +635,109 @@ try {
   assert.equal(res.acceptance.status, 'passed');
   assert.equal(res.acceptance.criteria.rows.status, 'passed');
   fs.rmSync(accDir, { recursive: true, force: true });
+}
+
+// --- PR e4faba7 回归：describe/doctor 不再因 required 参数崩溃、dryRunPlan 不再恒 null、只读无副作用 ---
+{
+  // 带 required 参数的 command 不传参 → 不抛，dryRunPlan 给出 unavailable 而非 null/崩溃
+  const d = describeCommand('demo.search_example', {});
+  assert.equal(d.name, 'demo.search_example');
+  assert.ok(d.dryRunPlan, 'dryRunPlan should not be null');
+  assert.equal(d.dryRunPlan.status, 'unavailable');
+  // 传参 → dryRunPlan 正常构建
+  const d2 = describeCommand('demo.search_example', { params: { keyword: 'abc' } });
+  assert.equal(d2.dryRunPlan.status, 'dry_run');
+  assert.ok(d2.dryRunPlan.plan);
+  // doctorAll 遍历全部 command 不崩
+  const doc = doctorAll({});
+  assert.equal(typeof doc.ok, 'boolean');
+  assert.ok(doc.total > 0);
+  // planCommand 只读：不写运行记录
+  const runDir = path.join(process.cwd(), '.platform-command', 'runs');
+  const before = fs.existsSync(runDir) ? fs.readdirSync(runDir).length : 0;
+  planCommand('demo.search_example', { keyword: 'abc' });
+  const after = fs.existsSync(runDir) ? fs.readdirSync(runDir).length : 0;
+  assert.equal(after, before, 'planCommand must not write run records');
+}
+
+// --- PR e4faba7 回归：run 记录 status 反映 acceptance；recordRun 返回 file ---
+{
+  const accDir = path.join(process.cwd(), '.tmp-acc-status');
+  fs.rmSync(accDir, { recursive: true, force: true });
+  fs.mkdirSync(accDir, { recursive: true });
+  fs.writeFileSync(path.join(accDir, 'demo.accfail.json'), JSON.stringify({
+    name: 'demo.accfail', platform: 'demo', description: 'd', riskLevel: 'low', parameters: {},
+    dataSource: { type: 'inline', rows: [] },
+    output: { capability: 'return_json', title: 't' },
+    acceptance: { criteria: [{ id: 'rows', type: 'data_contains', expect: { minCount: 1 } }] }
+  }));
+  const res = await executeCommand('demo.accfail', {}, { dryRun: false, confirm: true, commandsDir: accDir });
+  assert.equal(res.acceptance.status, 'failed');
+  assert.ok(res.runFile, 'runFile should be returned');
+  const recorded = JSON.parse(fs.readFileSync(res.runFile, 'utf8'));
+  assert.equal(recorded.status, 'failed', 'run record status must reflect acceptance failure');
+  fs.rmSync(accDir, { recursive: true, force: true });
+}
+
+// --- schedule 跨平台：cron→schtasks 子集转换 ---
+assert.deepEqual(cronToSchtasks('* * * * *').flags, ['/SC', 'MINUTE', '/MO', '1']);
+assert.deepEqual(cronToSchtasks('*/5 * * * *').flags, ['/SC', 'MINUTE', '/MO', '5']);
+assert.deepEqual(cronToSchtasks('0 9 * * *').flags, ['/SC', 'DAILY', '/ST', '09:00']);
+assert.deepEqual(cronToSchtasks('30 14 * * 1').flags, ['/SC', 'WEEKLY', '/D', 'MON', '/ST', '14:30']);
+assert.equal(cronToSchtasks('15 * * * *').flags[1], 'HOURLY');
+assert.equal(cronToSchtasks('*/5 9-18 * * 1-5'), null);
+assert.equal(cronToSchtasks('bad'), null);
+
+// --- schedule 跨平台：schtasks backend（注入 runSchtasks，跨平台可测）---
+{
+  let captured = null;
+  const st = installSchedule({ command: 'demo.search_example', cron: '0 9 * * *', backend: 'schtasks', runSchtasks: (a) => { captured = a; return ''; }, confirm: true, operationDryRun: false });
+  assert.equal(st.backend, 'schtasks');
+  assert.equal(st.installed, true);
+  assert.ok(captured.includes('/Create'));
+  assert.ok(st.schtasksArgs.join(' ').includes('/SC DAILY /ST 09:00'));
+  // 不可映射的 cron → 不装，降级手动
+  const bad = installSchedule({ command: 'demo.search_example', cron: '*/5 9-18 * * 1-5', backend: 'schtasks', runSchtasks: () => '', confirm: true, operationDryRun: false });
+  assert.equal(bad.installed, false);
+  assert.ok(/cannot be mapped/.test(bad.reason));
+  // schtasks list / remove
+  const listOut = '"\\platform-command\\demo-x-abc123","9:00:00 AM","Ready"\r\n';
+  const sl = listSchedules({ backend: 'schtasks', runSchtasks: () => listOut });
+  assert.equal(sl.backend, 'schtasks');
+  assert.equal(sl.schedules.length, 1);
+  assert.equal(sl.schedules[0].id, 'demo-x-abc123');
+  const sr = removeSchedule({ id: 'demo-x-abc123', backend: 'schtasks', confirm: true, runSchtasks: () => '' });
+  assert.equal(sr.removed, true);
+}
+
+// --- schedule 跨平台：无可用 backend 不崩，降级手动 spec ---
+{
+  const none = installSchedule({ command: 'demo.search_example', cron: '0 9 * * *', backend: 'none', operationDryRun: true });
+  assert.equal(none.backend, 'none');
+  assert.equal(none.installed, false);
+  assert.ok(none.spec.systemAdapters.windowsTask);
+  assert.equal(listSchedules({ backend: 'none' }).schedules.length, 0);
+}
+
+// --- schedule 能力分级警告 + requiresBrowser 推断 ---
+assert.equal(requiresBrowser({ sessionRef: 'prelogged-atrust', dataSource: { type: 'http_json' } }), true);
+assert.equal(requiresBrowser({ steps: [{ id: 'a', type: 'ui' }] }), true);
+assert.equal(requiresBrowser({ requires: { ui: true } }), true);
+assert.equal(requiresBrowser({ dataSource: { type: 'http_json' }, sessionRef: 'public-api' }), false);
+{
+  const schedDir = path.join(process.cwd(), '.tmp-sched-cmd');
+  fs.rmSync(schedDir, { recursive: true, force: true });
+  fs.mkdirSync(schedDir, { recursive: true });
+  fs.writeFileSync(path.join(schedDir, 'demo.pub.json'), JSON.stringify({ name: 'demo.pub', platform: 'demo', description: 'd', riskLevel: 'low', parameters: {}, dataSource: { type: 'http_json', steps: [{ id: 's', request: { method: 'GET', url: 'https://x.test' } }] }, output: { capability: 'return_json' } }));
+  fs.writeFileSync(path.join(schedDir, 'demo.sess.json'), JSON.stringify({ name: 'demo.sess', platform: 'demo', description: 'd', riskLevel: 'low', sessionRef: 'prelogged-browser', parameters: {}, dataSource: { type: 'http_json', steps: [{ id: 's', request: { method: 'POST', url: 'https://x.test', headers: { 'x-csrf-token': '{{session.csrf}}' } } }] }, output: { capability: 'return_json' } }));
+  const cronOpts = { backend: 'crontab', readCrontab: () => '', writeCrontab: () => ({ written: true }), confirm: true, operationDryRun: false, dryRunCommand: false, commandsDir: schedDir };
+  const warned = installSchedule({ command: 'demo.sess', cron: '0 9 * * *', ...cronOpts });
+  assert.ok(warned.warnings.some((w) => w.code === 'REQUIRES_INTERACTIVE_SESSION'), 'session command real schedule should warn');
+  const clean = installSchedule({ command: 'demo.pub', cron: '0 9 * * *', ...cronOpts });
+  assert.equal(clean.warnings.length, 0, 'public command should not warn');
+  const dryWarn = installSchedule({ command: 'demo.sess', cron: '0 9 * * *', ...cronOpts, dryRunCommand: true });
+  assert.equal(dryWarn.warnings.length, 0, 'scheduled dry-run needs no live session');
+  fs.rmSync(schedDir, { recursive: true, force: true });
 }
 
 console.log('All tests passed.');

@@ -235,6 +235,52 @@ node src/cli.js execute --command github.search_repositories --execute-real --co
 - **框架内置可执行能力**：command 声明 `dataSource` + `output` 后，CLI/MCP 可以直接执行低风险读操作，例如 HTTP JSON 查询并 `return_json` / `save_json`。GitHub 查询类 command 已按这种方式接入，真实执行不需要站点 adapter。
 - **Agent/WebBridge 执行能力**：复杂 Web 写操作仍由 Agent 按 command JSON 里的 recipe/workflow 控制浏览器或调用已学习到的接口执行；JSON 负责描述参数、步骤、校验和风险边界，框架负责通用解析、dry-run、校验和分发，不把每个站点逻辑写死进框架。
 
+## 执行后端与环境最佳实践
+
+普通 list / verify / execute `--dry-run`，以及公开只读接口的真实执行（如 GitHub 查询类）都**不需要浏览器**。只有当 command 需要**登录态接口**或**UI 写操作**时，才需要一个能控制浏览器、携带真实登录会话的执行后端。
+
+按 command 的能力需求区分：
+
+| command 能力需求 | 需要浏览器 | 执行方式 |
+| --- | --- | --- |
+| 公开只读接口 | 否 | Node 直接 HTTP，开箱即用 |
+| 登录态接口（Cookie / CSRF） | 是 | 浏览器后端在已登录上下文发请求 |
+| UI 写操作（填表 / 点击 / shadow DOM） | 是 | 浏览器后端驱动页面操作 |
+
+### 按环境选择浏览器后端
+
+| 环境 | 推荐后端 | 浏览器 | 理由 |
+| --- | --- | --- | --- |
+| **带桌面的电脑** | **Kimi WebBridge** | Chrome | 复用你已登录的真实 Chrome 会话（含 httpOnly Cookie、零信任隧道），登录态 / 零信任站点（如 aTrust）最省事；适合人工在场 |
+| **服务器 / 无头** | **Playwright** | Chrome / Chromium | 持久化 profile 提前登录一次即可复用，可移植、可自动化，适合无人值守 |
+| **纯公开 API** | Node（无浏览器） | — | 无前置依赖，装完即用 |
+
+**桌面 · Kimi WebBridge + Chrome**：
+
+```bash
+# 安装并启动 daemon
+curl -fsSL https://cdn.kimi.com/webbridge/install.sh | bash
+# 健康检查：需 running: true 且 extension_connected: true
+~/.kimi-webbridge/bin/kimi-webbridge status
+```
+
+再安装浏览器扩展（见 https://www.kimi.com/features/webbridge ，中文 https://www.kimi.com/zh-cn/features/webbridge ）并在 Chrome 登录目标站点。之后 Agent 通过本机 daemon（`127.0.0.1:10086`）在真实会话里执行接口或 UI 操作。零信任站点（aTrust 等）走本机隧道，这是最稳的执行点。
+
+**服务器 · Playwright + Chrome**：
+
+```bash
+npm install playwright
+npx playwright install chromium   # 或指定本机 Chrome channel
+```
+
+用持久化用户目录（Playwright 的 `launchPersistentContext`）提前登录目标站点一次，之后复用该 profile 携带登录态执行——与桌面 WebBridge 等价地满足「已登录浏览器会话」，区别只在可移植性与是否需要人工在场。
+
+### 原则
+
+- **后端由环境显式选择，框架不自动猜**：避免同一 command 在不同机器行为漂移，或静默选到未登录的后端导致误导性 401。
+- **用到才要求**：第一次执行需要浏览器的 command 时，框架明确提示缺什么（后端未配 / profile 未登录 / Playwright 未安装）并给出修复方式，而不是安装时就强制依赖。
+- **公开能力开箱即用**：不需要浏览器的 command 装完即可运行，不要求任何人安装浏览器。
+
 ## 安装与分发
 
 ### 作为 MCP server 使用

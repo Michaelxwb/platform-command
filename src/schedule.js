@@ -1,6 +1,8 @@
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { loadCommand } from './command_store.js';
+import { requiresBrowser } from './requirements.js';
 
 const MARKER_PREFIX = 'platform-command schedule';
 
@@ -69,10 +71,63 @@ export function buildCronBlock(spec) {
   ].join('\n');
 }
 
+// Warn (do not block) when an unattended real run needs a logged-in browser.
+function buildExecutionWarnings(spec, options = {}) {
+  const warnings = [];
+  if (spec.dryRun) return warnings; // scheduled dry-run never needs a live session
+  let command;
+  try {
+    command = loadCommand(spec.command, { commandsDir: options.commandsDir }).command;
+  } catch {
+    return warnings; // command not found here; install layer doesn't enforce existence
+  }
+  if (requiresBrowser(command)) {
+    warnings.push({
+      code: 'REQUIRES_INTERACTIVE_SESSION',
+      message: `Command '${spec.command}' needs a logged-in browser session (session/ui). An unattended scheduled --execute-real will fail unless a logged-in browser / daemon is present at trigger time. Keep it dry-run, or trigger it with a person present.`
+    });
+  }
+  return warnings;
+}
+
+// Pick the host scheduler backend. OS is a hard fact, so selecting by platform
+// is fine (not a "magic guess"). Injected crontab hooks force the crontab path.
+function detectBackend(options = {}) {
+  if (options.backend) return options.backend;
+  if (typeof options.readCrontab === 'function' || typeof options.crontabText === 'string' || typeof options.writeCrontab === 'function') return 'crontab';
+  if (typeof options.runSchtasks === 'function') return 'schtasks';
+  if (process.platform === 'win32') return commandExists(options.schtasksBin || 'schtasks', ['/Query']) ? 'schtasks' : 'none';
+  return commandExists(options.crontabBin || 'crontab', ['-l']) ? 'crontab' : 'none';
+}
+
+function commandExists(bin, args = []) {
+  const probe = spawnSync(bin, args, { stdio: 'ignore' });
+  return !(probe.error && probe.error.code === 'ENOENT');
+}
+
 export function installSchedule(options = {}) {
   const operationDryRun = options.operationDryRun ?? options.dryRun ?? false;
   const spec = buildScheduleSpec({ ...options, dryRun: options.commandDryRun ?? options.scheduleDryRun ?? options.dryRunCommand ?? options.dryRun ?? true });
+  const warnings = buildExecutionWarnings(spec, options);
+  const backend = detectBackend(options);
+  if (backend === 'none') {
+    return {
+      action: 'install',
+      backend: 'none',
+      installed: false,
+      dryRun: !!operationDryRun,
+      id: spec.id,
+      spec,
+      warnings,
+      reason: 'No supported scheduler backend on this platform (need crontab or schtasks); use spec.systemAdapters to install manually.'
+    };
+  }
   if (!operationDryRun && !options.confirm) throw new Error('schedule install requires --confirm unless --dry-run is used');
+  if (backend === 'schtasks') return installViaSchtasks(spec, { ...options, operationDryRun, warnings });
+  return installViaCrontab(spec, { ...options, operationDryRun, warnings });
+}
+
+function installViaCrontab(spec, options) {
   const existing = readCrontab(options);
   const schedules = parsePlatformSchedules(existing);
   const nextBlock = buildCronBlock(spec);
@@ -80,46 +135,95 @@ export function installSchedule(options = {}) {
   const next = appendCronBlock(withoutSame, nextBlock);
   return {
     action: 'install',
-    dryRun: !!operationDryRun,
-    installed: !operationDryRun,
+    backend: 'crontab',
+    dryRun: !!options.operationDryRun,
+    installed: !options.operationDryRun,
     replaced: schedules.some((item) => item.id === spec.id),
     id: spec.id,
     spec,
+    warnings: options.warnings,
     cronBlock: nextBlock,
     previousCrontab: options.includeCrontab ? existing : undefined,
-    nextCrontab: operationDryRun || options.includeCrontab ? next : undefined,
-    backend: 'crontab',
-    ...(operationDryRun ? {} : writeCrontab(next, options))
+    nextCrontab: options.operationDryRun || options.includeCrontab ? next : undefined,
+    ...(options.operationDryRun ? {} : writeCrontab(next, options))
+  };
+}
+
+function installViaSchtasks(spec, options) {
+  const mapped = cronToSchtasks(spec.cron);
+  if (!mapped) {
+    return {
+      action: 'install',
+      backend: 'schtasks',
+      installed: false,
+      dryRun: !!options.operationDryRun,
+      id: spec.id,
+      spec,
+      warnings: options.warnings,
+      reason: `cron '${spec.cron}' cannot be mapped to a schtasks schedule; install manually via Task Scheduler using spec.systemAdapters.windowsTask.`
+    };
+  }
+  const taskName = `\\platform-command\\${spec.id}`;
+  const taskRun = `cmd /c "cd /d ${spec.cwd} && ${spec.shellCommand}"`;
+  const args = ['/Create', '/TN', taskName, '/TR', taskRun, '/F', ...mapped.flags];
+  if (!options.operationDryRun) schtasksRun(args, options);
+  return {
+    action: 'install',
+    backend: 'schtasks',
+    installed: !options.operationDryRun,
+    dryRun: !!options.operationDryRun,
+    id: spec.id,
+    taskName,
+    spec,
+    warnings: options.warnings,
+    schtasksArgs: args,
+    schedule: mapped.flags.join(' '),
+    ...(options.operationDryRun ? {} : { written: true })
   };
 }
 
 export function listSchedules(options = {}) {
-  const crontab = readCrontab(options);
-  return {
-    action: 'list',
-    backend: 'crontab',
-    schedules: parsePlatformSchedules(crontab)
-  };
+  const backend = detectBackend(options);
+  if (backend === 'schtasks') return listViaSchtasks(options);
+  if (backend === 'none') return { action: 'list', backend: 'none', schedules: [] };
+  return { action: 'list', backend: 'crontab', schedules: parsePlatformSchedules(readCrontab(options)) };
+}
+
+function listViaSchtasks(options) {
+  let out = '';
+  try {
+    out = schtasksRun(['/Query', '/FO', 'CSV', '/NH'], options);
+  } catch {
+    out = '';
+  }
+  const schedules = String(out)
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(/^"([^"]*platform-command[\\/][^"]+)"/i);
+      if (!match) return null;
+      const taskName = match[1];
+      const id = taskName.split(/[\\/]/).pop();
+      return { id, taskName, backend: 'schtasks' };
+    })
+    .filter(Boolean);
+  return { action: 'list', backend: 'schtasks', schedules };
 }
 
 export function getScheduleStatus(options = {}) {
   const id = options.id;
   if (!id) throw new Error('schedule status requires --id');
-  const schedules = listSchedules(options).schedules;
-  const schedule = schedules.find((item) => item.id === id) || null;
-  return {
-    action: 'status',
-    backend: 'crontab',
-    id,
-    found: !!schedule,
-    schedule
-  };
+  const result = listSchedules(options);
+  const schedule = result.schedules.find((item) => item.id === id) || null;
+  return { action: 'status', backend: result.backend, id, found: !!schedule, schedule };
 }
 
 export function removeSchedule(options = {}) {
   const id = options.id;
   if (!id) throw new Error('schedule remove requires --id');
   if (!options.dryRun && !options.confirm) throw new Error('schedule remove requires --confirm unless --dry-run is used');
+  const backend = detectBackend(options);
+  if (backend === 'schtasks') return removeViaSchtasks(id, options);
+  if (backend === 'none') return { action: 'remove', backend: 'none', id, removed: false, found: false, reason: 'No supported scheduler backend.' };
   const existing = readCrontab(options);
   const schedules = parsePlatformSchedules(existing);
   const found = schedules.some((item) => item.id === id);
@@ -135,6 +239,46 @@ export function removeSchedule(options = {}) {
     nextCrontab: options.dryRun || options.includeCrontab ? next : undefined,
     ...(options.dryRun ? {} : writeCrontab(next, options))
   };
+}
+
+function removeViaSchtasks(id, options) {
+  const taskName = `\\platform-command\\${id}`;
+  if (options.dryRun) return { action: 'remove', backend: 'schtasks', id, taskName, dryRun: true, removed: false };
+  let removed = true;
+  try {
+    schtasksRun(['/Delete', '/TN', taskName, '/F'], options);
+  } catch {
+    removed = false;
+  }
+  return { action: 'remove', backend: 'schtasks', id, taskName, removed, found: removed };
+}
+
+function schtasksRun(args, options = {}) {
+  if (typeof options.runSchtasks === 'function') return options.runSchtasks(args);
+  return execFileSync(options.schtasksBin || 'schtasks', args, { encoding: 'utf8' });
+}
+
+// cron (5 fields) -> schtasks schedule flags. Only the directly mappable subset
+// is supported; anything richer returns null so the caller can degrade to a
+// manual spec instead of installing a wrong/partial task.
+export function cronToSchtasks(cron) {
+  const parts = String(cron || '').trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [min, hour, dom, mon, dow] = parts;
+  const num = (v) => /^\d+$/.test(v);
+  const pad = (v) => String(Number(v)).padStart(2, '0');
+  const monthlyWild = dom === '*' && mon === '*';
+
+  if (min === '*' && hour === '*' && monthlyWild && dow === '*') return { flags: ['/SC', 'MINUTE', '/MO', '1'] };
+  const everyN = min.match(/^\*\/(\d+)$/);
+  if (everyN && hour === '*' && monthlyWild && dow === '*') return { flags: ['/SC', 'MINUTE', '/MO', everyN[1]] };
+  if (num(min) && hour === '*' && monthlyWild && dow === '*') return { flags: ['/SC', 'HOURLY', '/MO', '1', '/ST', `00:${pad(min)}`] };
+  if (num(min) && num(hour) && monthlyWild && dow === '*') return { flags: ['/SC', 'DAILY', '/ST', `${pad(hour)}:${pad(min)}`] };
+  if (num(min) && num(hour) && dom === '*' && mon === '*' && num(dow)) {
+    const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    return { flags: ['/SC', 'WEEKLY', '/D', days[Number(dow) % 7], '/ST', `${pad(hour)}:${pad(min)}`] };
+  }
+  return null;
 }
 
 export function parsePlatformSchedules(crontabText = '') {
@@ -206,6 +350,7 @@ function readCrontab(options = {}) {
   try {
     return execFileSync(options.crontabBin || 'crontab', ['-l'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (err) {
+    if (err.code === 'ENOENT') return ''; // crontab binary missing (e.g. Windows): treat as empty, don't crash
     const stderr = String(err.stderr || err.message || '');
     if (err.status === 1 || /no crontab for|no crontab/i.test(stderr)) return '';
     throw new Error(`failed to read crontab: ${stderr.trim() || err.message}`);

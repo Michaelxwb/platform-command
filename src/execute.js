@@ -80,7 +80,7 @@ export async function executeCommand(commandName, providedParams = {}, options =
       const response = { ...result, acceptance };
       const recorded = recordRun({
         command: command.name,
-        status: response.status || (acceptance.ok ? 'success' : 'failed'),
+        status: runStatusFromAcceptance(response.status, acceptance),
         dryRun: false,
         startedAt,
         finishedAt: new Date().toISOString(),
@@ -143,4 +143,29 @@ function buildExecutionPlan(command, params, options = {}) {
 
 function renderLegacyUi(ui, params) {
   return renderValue(ui, { params, steps: {} });
+}
+
+// Synchronous, side-effect-free dry-run plan. Read-only callers (describe /
+// doctor) use this instead of executeCommand so they neither write run records
+// nor leak unhandled promise rejections when required params are missing.
+export function planCommand(commandName, providedParams = {}, options = {}) {
+  const { file, command } = loadCommand(commandName, { commandsDir: options.commandsDir });
+  const { params, meta: paramsMeta } = resolveCommandParams(command, providedParams);
+  const plan = buildExecutionPlan(command, params, { failOnUnresolvedTemplates: false });
+  return {
+    status: 'dry_run',
+    file,
+    command: command.name,
+    riskLevel: command.riskLevel,
+    params: redactSensitive(params),
+    paramsMeta: redactSensitive(paramsMeta),
+    session: describeSessionRef(plan.sessionRef || command.sessionRef),
+    plan
+  };
+}
+
+function runStatusFromAcceptance(execStatus, acceptance) {
+  if (acceptance?.status === 'failed') return 'failed';
+  if (acceptance?.status === 'incomplete') return 'incomplete';
+  return execStatus || 'success';
 }

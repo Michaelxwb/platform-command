@@ -1,6 +1,6 @@
 import { listCommands, loadCommand } from './command_store.js';
 import { resolveCommandParams } from './params_resolver.js';
-import { executeCommand, getExecutionCapability } from './execute.js';
+import { planCommand, getExecutionCapability } from './execute.js';
 import { parseNaturalLanguage } from './nl.js';
 import { redactSensitive } from './utils.js';
 
@@ -79,9 +79,7 @@ export function buildAgentManifest(options = {}) {
 
 function safeDryRun(commandName, params, options) {
   try {
-    const result = executeCommand(commandName, params, { commandsDir: options.commandsDir, dryRun: true });
-    if (result && typeof result.then === 'function') return null;
-    return result;
+    return planCommand(commandName, params, { commandsDir: options.commandsDir });
   } catch (error) {
     return { status: 'unavailable', error: error.message };
   }
