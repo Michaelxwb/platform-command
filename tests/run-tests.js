@@ -14,6 +14,7 @@ import { exportRows } from '../src/exporters.js';
 import { readDataSource } from '../src/data_sources.js';
 import { evaluateAcceptance } from '../src/acceptance.js';
 import { executeCommand, getExecutionCapability } from '../src/execute.js';
+import { buildScheduleSpec, installSchedule, listSchedules, getScheduleStatus, removeSchedule } from '../src/schedule.js';
 import { doctorCommand } from '../src/doctor.js';
 import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
@@ -672,6 +673,39 @@ assert.equal(scheduleJson.command, 'demo.search_example');
 assert.equal(scheduleJson.dryRun, true);
 assert.ok(scheduleJson.shellCommand.includes('demo.search_example'));
 assert.ok(scheduleJson.systemAdapters.cron.includes('0 9 * * *'));
+
+const schedulePlanJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', 'plan', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--json', 'keyword=plan'], { encoding: 'utf8' }));
+assert.equal(schedulePlanJson.kind, 'platform_command_schedule');
+assert.equal(schedulePlanJson.dryRun, true);
+assert.ok(schedulePlanJson.shellCommand.includes('--dry-run'));
+
+const scheduleDryInstallJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', 'install', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--dry-run', '--json', 'keyword=install'], { encoding: 'utf8' }));
+assert.equal(scheduleDryInstallJson.action, 'install');
+assert.equal(scheduleDryInstallJson.dryRun, true);
+assert.ok(scheduleDryInstallJson.nextCrontab.includes('platform-command schedule begin'));
+assert.ok(scheduleDryInstallJson.nextCrontab.includes('--execute-real'));
+
+let mockCrontab = '# user cron\n15 1 * * * echo keep\n# unrelated platform-command schedule begin broken\n0 1 * * * echo broken\n';
+const mockOptions = {
+  readCrontab: () => mockCrontab,
+  writeCrontab: (next) => {
+    mockCrontab = next;
+    return { written: true };
+  }
+};
+const installedSchedule = installSchedule({ command: 'demo.search_example', cron: '0 9 * * *', params: { keyword: 'mock' }, dryRun: false, dryRunCommand: false, confirm: true, ...mockOptions });
+assert.equal(installedSchedule.action, 'install');
+assert.equal(installedSchedule.dryRun, false);
+assert.equal(installedSchedule.written, true);
+assert.ok(mockCrontab.includes('echo keep'));
+assert.ok(mockCrontab.includes('platform-command schedule begin'));
+assert.equal(listSchedules(mockOptions).schedules.length, 1);
+assert.equal(getScheduleStatus({ id: installedSchedule.id, ...mockOptions }).found, true);
+assert.equal(getScheduleStatus({ id: 'missing', ...mockOptions }).found, false);
+const removedSchedule = removeSchedule({ id: installedSchedule.id, dryRun: false, confirm: true, ...mockOptions });
+assert.equal(removedSchedule.removed, true);
+assert.equal(listSchedules(mockOptions).schedules.length, 0);
+assert.ok(mockCrontab.includes('echo keep'));
 
 const docsJson = JSON.parse(execFileSync('node', ['src/cli.js', 'docs', '--json'], { encoding: 'utf8' }));
 assert.ok(docsJson.commands > 0);

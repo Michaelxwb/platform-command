@@ -7,7 +7,14 @@ import { buildAgentManifest, describeCommand, explainNaturalLanguage } from './d
 import { doctorAll, doctorCommand, environmentDoctor } from './doctor.js';
 import { initCommandScaffold } from './init.js';
 import { listRuns, summarizeRuns } from './runs.js';
-import { buildScheduleSpec, formatScheduleMarkdown } from './schedule.js';
+import {
+  buildScheduleSpec,
+  formatScheduleMarkdown,
+  getScheduleStatus,
+  installSchedule,
+  listSchedules,
+  removeSchedule
+} from './schedule.js';
 import { generateCommandDocs } from './docs.js';
 import { parseKeyValues, printJson } from './utils.js';
 import { verifyCommand } from './verify.js';
@@ -24,7 +31,11 @@ Usage:
   node src/cli.js agent --json
   node src/cli.js doctor [--command <name>] [--json]
   node src/cli.js runs [--summary] [--limit 20]
-  node src/cli.js schedule --command <name> --cron <expr> [--json] key=value ...
+  node src/cli.js schedule plan --command <name> --cron <expr> [--json] key=value ...
+  node src/cli.js schedule install --command <name> --cron <expr> [--dry-run|--confirm] [--json] key=value ...
+  node src/cli.js schedule list [--json]
+  node src/cli.js schedule status --id <id> [--json]
+  node src/cli.js schedule remove --id <id> [--dry-run|--confirm] [--json]
   node src/cli.js docs [--output <path>] [--commands-dir <dir>]
   node src/cli.js init --platform <name> --action <name> [--dir commands]
   node src/cli.js mcp
@@ -64,6 +75,30 @@ function parseArgs(argv) {
 function extractExecuteParams(args) {
   const params = parseKeyValues(args._);
   const reserved = new Set(['_', 'command', 'commandsDir', 'dryRun', 'confirm', 'headed', 'executeReal', 'json', 'cron', 'timezone', 'output']);
+  for (const [key, value] of Object.entries(args)) {
+    if (!reserved.has(key)) params[key] = value;
+  }
+  return params;
+}
+
+function extractScheduleParams(args, subcmd = 'plan') {
+  const positional = args._[0] === subcmd ? args._.slice(1) : args._;
+  const params = parseKeyValues(positional);
+  const reserved = new Set([
+    '_',
+    'id',
+    'command',
+    'commandsDir',
+    'cron',
+    'timezone',
+    'dryRun',
+    'dryRunCommand',
+    'confirm',
+    'executeReal',
+    'json',
+    'output',
+    'headed'
+  ]);
   for (const [key, value] of Object.entries(args)) {
     if (!reserved.has(key)) params[key] = value;
   }
@@ -114,17 +149,49 @@ async function main() {
     return;
   }
   if (cmd === 'schedule') {
-    const spec = buildScheduleSpec({
-      command: args.command,
-      cron: args.cron,
-      timezone: args.timezone || 'local',
-      dryRun: !args.executeReal,
-      confirm: !!args.confirm,
-      params: extractExecuteParams(args)
-    });
-    if (args.json) printJson(spec);
-    else console.log(formatScheduleMarkdown(spec));
-    return;
+    const subcmd = args._[0] && !String(args._[0]).includes('=') ? args._[0] : (args.command ? 'plan' : 'list');
+    const params = extractScheduleParams(args, subcmd);
+    if (subcmd === 'plan') {
+      const spec = buildScheduleSpec({
+        id: args.id,
+        command: args.command,
+        cron: args.cron,
+        timezone: args.timezone || 'local',
+        dryRun: !args.executeReal,
+        confirm: !!args.confirm,
+        params
+      });
+      if (args.json) printJson(spec);
+      else console.log(formatScheduleMarkdown(spec));
+      return;
+    }
+    if (subcmd === 'install') {
+      const result = installSchedule({
+        id: args.id,
+        command: args.command,
+        cron: args.cron,
+        timezone: args.timezone || 'local',
+        operationDryRun: !!args.dryRun,
+        commandDryRun: !!args.dryRunCommand,
+        confirm: !!args.confirm,
+        params
+      });
+      printJson(result);
+      return;
+    }
+    if (subcmd === 'list') {
+      printJson(listSchedules());
+      return;
+    }
+    if (subcmd === 'status') {
+      printJson(getScheduleStatus({ id: args.id }));
+      return;
+    }
+    if (subcmd === 'remove') {
+      printJson(removeSchedule({ id: args.id, dryRun: !!args.dryRun, confirm: !!args.confirm }));
+      return;
+    }
+    throw new Error(`unknown schedule subcommand: ${subcmd}`);
   }
   if (cmd === 'docs') {
     const result = generateCommandDocs({ commandsDir: args.commandsDir, outputPath: args.output });
