@@ -30,8 +30,9 @@ export function buildScheduleSpec({
     if (value === undefined || value === null) continue;
     args.push(`${key}=${String(value)}`);
   }
-  const shellCommand = [nodeBin, ...args.map(shellQuote)].join(' ');
-  const cronCommand = `cd ${shellQuote(resolvedCwd)} && ${shellCommand}`;
+  const shellCommand = [nodeBin, ...args.map(posixShellQuote)].join(' ');
+  const cronCommand = `cd ${posixShellQuote(resolvedCwd)} && ${shellCommand}`;
+  const windowsTaskRun = buildWindowsTaskRun({ cwd: resolvedCwd, nodeBin, args });
   return {
     kind: 'platform_command_schedule',
     id: scheduleId,
@@ -45,16 +46,18 @@ export function buildScheduleSpec({
     systemAdapters: {
       cron: `${cron} ${cronCommand}`,
       systemdTimer: {
-        serviceExecStart: `/bin/sh -lc ${shellQuote(cronCommand)}`,
+        serviceExecStart: `/bin/sh -lc ${posixShellQuote(cronCommand)}`,
         timerOnCalendar: `cron:${cron}`
       },
       windowsTask: {
         program: nodeBin,
-        arguments: args.join(' '),
+        arguments: args.map(windowsArgQuote).join(' '),
+        taskRun: windowsTaskRun,
         startIn: resolvedCwd,
         scheduleHint: cron
       }
     },
+    risk: buildScheduleRisk({ dryRun, confirm: dryRun ? false : true, schedulerWrite: false }),
     note: 'This schedule can be installed into the host scheduler with schedule install --confirm.'
   };
 }
@@ -107,7 +110,7 @@ function commandExists(bin, args = []) {
 
 export function installSchedule(options = {}) {
   const operationDryRun = options.operationDryRun ?? options.dryRun ?? false;
-  const spec = buildScheduleSpec({ ...options, dryRun: options.commandDryRun ?? options.scheduleDryRun ?? options.dryRunCommand ?? options.dryRun ?? true });
+  const spec = buildScheduleSpec({ ...options, dryRun: options.commandDryRun ?? options.scheduleDryRun ?? options.dryRunCommand ?? false });
   const warnings = buildExecutionWarnings(spec, options);
   const backend = detectBackend(options);
   if (backend === 'none') {
@@ -119,6 +122,7 @@ export function installSchedule(options = {}) {
       id: spec.id,
       spec,
       warnings,
+      risk: buildScheduleRisk({ dryRun: spec.dryRun, schedulerWrite: false }),
       reason: 'No supported scheduler backend on this platform (need crontab or schtasks); use spec.systemAdapters to install manually.'
     };
   }
@@ -142,6 +146,7 @@ function installViaCrontab(spec, options) {
     id: spec.id,
     spec,
     warnings: options.warnings,
+    risk: buildScheduleRisk({ dryRun: spec.dryRun, schedulerWrite: !options.operationDryRun }),
     cronBlock: nextBlock,
     previousCrontab: options.includeCrontab ? existing : undefined,
     nextCrontab: options.operationDryRun || options.includeCrontab ? next : undefined,
@@ -160,11 +165,12 @@ function installViaSchtasks(spec, options) {
       id: spec.id,
       spec,
       warnings: options.warnings,
+      risk: buildScheduleRisk({ dryRun: spec.dryRun, schedulerWrite: false }),
       reason: `cron '${spec.cron}' cannot be mapped to a schtasks schedule; install manually via Task Scheduler using spec.systemAdapters.windowsTask.`
     };
   }
   const taskName = `\\platform-command\\${spec.id}`;
-  const taskRun = `cmd /c "cd /d ${spec.cwd} && ${spec.shellCommand}"`;
+  const taskRun = spec.systemAdapters.windowsTask.taskRun;
   const args = ['/Create', '/TN', taskName, '/TR', taskRun, '/F', ...mapped.flags];
   if (!options.operationDryRun) schtasksRun(args, options);
   return {
@@ -178,6 +184,7 @@ function installViaSchtasks(spec, options) {
     warnings: options.warnings,
     schtasksArgs: args,
     schedule: mapped.flags.join(' '),
+    risk: buildScheduleRisk({ dryRun: spec.dryRun, schedulerWrite: !options.operationDryRun }),
     ...(options.operationDryRun ? {} : { written: true })
   };
 }
@@ -266,15 +273,20 @@ export function cronToSchtasks(cron) {
   if (parts.length !== 5) return null;
   const [min, hour, dom, mon, dow] = parts;
   const num = (v) => /^\d+$/.test(v);
+  const intIn = (v, minValue, maxValue) => num(v) && Number(v) >= minValue && Number(v) <= maxValue;
   const pad = (v) => String(Number(v)).padStart(2, '0');
   const monthlyWild = dom === '*' && mon === '*';
 
   if (min === '*' && hour === '*' && monthlyWild && dow === '*') return { flags: ['/SC', 'MINUTE', '/MO', '1'] };
   const everyN = min.match(/^\*\/(\d+)$/);
-  if (everyN && hour === '*' && monthlyWild && dow === '*') return { flags: ['/SC', 'MINUTE', '/MO', everyN[1]] };
-  if (num(min) && hour === '*' && monthlyWild && dow === '*') return { flags: ['/SC', 'HOURLY', '/MO', '1', '/ST', `00:${pad(min)}`] };
-  if (num(min) && num(hour) && monthlyWild && dow === '*') return { flags: ['/SC', 'DAILY', '/ST', `${pad(hour)}:${pad(min)}`] };
-  if (num(min) && num(hour) && dom === '*' && mon === '*' && num(dow)) {
+  if (everyN && hour === '*' && monthlyWild && dow === '*') {
+    const interval = Number(everyN[1]);
+    if (interval < 1 || interval > 1439) return null;
+    return { flags: ['/SC', 'MINUTE', '/MO', String(interval)] };
+  }
+  if (intIn(min, 0, 59) && hour === '*' && monthlyWild && dow === '*') return { flags: ['/SC', 'HOURLY', '/MO', '1', '/ST', `00:${pad(min)}`] };
+  if (intIn(min, 0, 59) && intIn(hour, 0, 23) && monthlyWild && dow === '*') return { flags: ['/SC', 'DAILY', '/ST', `${pad(hour)}:${pad(min)}`] };
+  if (intIn(min, 0, 59) && intIn(hour, 0, 23) && dom === '*' && mon === '*' && intIn(dow, 0, 7)) {
     const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     return { flags: ['/SC', 'WEEKLY', '/D', days[Number(dow) % 7], '/ST', `${pad(hour)}:${pad(min)}`] };
   }
@@ -391,8 +403,33 @@ function normalizeParams(params = {}) {
   return Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined && value !== null));
 }
 
-function shellQuote(value) {
+function posixShellQuote(value) {
   const text = String(value);
   if (/^[A-Za-z0-9_./:=+-]+$/.test(text)) return text;
-  return `'${text.replace(/'/g, `'\\''`)}'`;
+  return `'${text.replace(/'/g, `'\''`)}'`;
+}
+
+function windowsArgQuote(value) {
+  const text = String(value);
+  if (text.length === 0) return '""';
+  if (!/[\s"^&|<>()%]/.test(text)) return text;
+  return `"${text.replace(/(\\*)"/g, '$1$1\\"').replace(/\\+$/g, '$&$&')}"`;
+}
+
+function windowsCmdQuote(value) {
+  return windowsArgQuote(value).replace(/[&|<>()^]/g, '^$&');
+}
+
+function buildWindowsTaskRun({ cwd, nodeBin, args }) {
+  const command = [nodeBin, ...args].map(windowsCmdQuote).join(' ');
+  return `cmd.exe /d /s /c "cd /d ${windowsCmdQuote(cwd)} && ${command}"`;
+}
+
+function buildScheduleRisk({ dryRun, schedulerWrite = false }) {
+  return {
+    commandExecutionMode: dryRun ? 'dry-run' : 'real',
+    requiresConfirm: !dryRun || schedulerWrite,
+    schedulerWrite: !!schedulerWrite,
+    managedScope: 'platform-command-block-only'
+  };
 }

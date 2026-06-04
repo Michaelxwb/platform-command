@@ -32,7 +32,7 @@ Usage:
   node src/cli.js doctor [--command <name>] [--json]
   node src/cli.js runs [--summary] [--limit 20]
   node src/cli.js schedule plan --command <name> --cron <expr> [--json] key=value ...
-  node src/cli.js schedule install --command <name> --cron <expr> [--dry-run|--confirm] [--json] key=value ...
+  node src/cli.js schedule install --command <name> --cron <expr> [--dry-run|--confirm] [--dry-run-command] [--json] key=value ...
   node src/cli.js schedule list [--json]
   node src/cli.js schedule status --id <id> [--json]
   node src/cli.js schedule remove --id <id> [--dry-run|--confirm] [--json]
@@ -43,7 +43,7 @@ Usage:
   node src/cli.js verify --command <name> [--commands-dir <dir>]
   node src/cli.js execute --command <name> [--commands-dir <dir>] [--dry-run] key=value ...
   node src/cli.js ask "自然语言指令" [--json] [--execute-real --confirm]
-  node src/cli.js execute --command <name> --execute-real --confirm key=value ...  # experimental; currently blocked
+  node src/cli.js execute --command <name> --execute-real --confirm key=value ...
   node src/cli.js learn --platform <name> --action <name> --url <url> [--observe-seconds 8] [--headed]
 
 Examples:
@@ -63,7 +63,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg.startsWith('--')) {
       const key = arg.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-      if (['dryRun', 'confirm', 'headed', 'executeReal', 'json'].includes(key)) out[key] = true;
+      if (['dryRun', 'dryRunCommand', 'confirm', 'headed', 'executeReal', 'json'].includes(key)) out[key] = true;
       else out[key] = argv[++i];
     } else {
       out._.push(arg);

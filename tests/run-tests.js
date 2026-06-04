@@ -687,6 +687,11 @@ assert.deepEqual(cronToSchtasks('30 14 * * 1').flags, ['/SC', 'WEEKLY', '/D', 'M
 assert.equal(cronToSchtasks('15 * * * *').flags[1], 'HOURLY');
 assert.equal(cronToSchtasks('*/5 9-18 * * 1-5'), null);
 assert.equal(cronToSchtasks('bad'), null);
+assert.equal(cronToSchtasks('90 99 * * *'), null);
+assert.equal(cronToSchtasks('60 * * * *'), null);
+assert.equal(cronToSchtasks('0 24 * * *'), null);
+assert.equal(cronToSchtasks('0 9 * * 8'), null);
+assert.equal(cronToSchtasks('*/0 * * * *'), null);
 
 // --- schedule 跨平台：schtasks backend（注入 runSchtasks，跨平台可测）---
 {
@@ -696,6 +701,8 @@ assert.equal(cronToSchtasks('bad'), null);
   assert.equal(st.installed, true);
   assert.ok(captured.includes('/Create'));
   assert.ok(st.schtasksArgs.join(' ').includes('/SC DAILY /ST 09:00'));
+  assert.equal(st.risk.commandExecutionMode, 'real');
+  assert.equal(st.risk.schedulerWrite, true);
   // 不可映射的 cron → 不装，降级手动
   const bad = installSchedule({ command: 'demo.search_example', cron: '*/5 9-18 * * 1-5', backend: 'schtasks', runSchtasks: () => '', confirm: true, operationDryRun: false });
   assert.equal(bad.installed, false);
@@ -782,7 +789,14 @@ assert.ok(scheduleJson.systemAdapters.cron.includes('0 9 * * *'));
 const schedulePlanJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', 'plan', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--json', 'keyword=plan'], { encoding: 'utf8' }));
 assert.equal(schedulePlanJson.kind, 'platform_command_schedule');
 assert.equal(schedulePlanJson.dryRun, true);
+assert.equal(schedulePlanJson.risk.commandExecutionMode, 'dry-run');
 assert.ok(schedulePlanJson.shellCommand.includes('--dry-run'));
+
+const scheduleDryRunCommandInstallJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', 'install', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--dry-run', '--dry-run-command', '--json', 'keyword=hello world'], { encoding: 'utf8' }));
+assert.equal(scheduleDryRunCommandInstallJson.spec.dryRun, true);
+assert.ok(scheduleDryRunCommandInstallJson.spec.shellCommand.includes('--dry-run'));
+assert.equal(scheduleDryRunCommandInstallJson.spec.risk.commandExecutionMode, 'dry-run');
+assert.ok(scheduleDryRunCommandInstallJson.spec.systemAdapters.windowsTask.arguments.includes('keyword=hello world'));
 
 const scheduleDryInstallJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', 'install', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--dry-run', '--json', 'keyword=install'], { encoding: 'utf8' }));
 assert.equal(scheduleDryInstallJson.action, 'install');
