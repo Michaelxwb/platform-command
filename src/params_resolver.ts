@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { mergeParams } from './command_store.js';
 
 export function resolveCommandParams(command, providedParams = {}) {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { listCommands, loadCommand } from './command_store.js';
 import { resolveCommandParams } from './params_resolver.js';
 import { planCommand, getExecutionCapability } from './execute.js';

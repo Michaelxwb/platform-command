@@ -5,3 +5,5 @@ verification_*_report.json
 *.log
 .DS_Store
 .idea
+
+dist/

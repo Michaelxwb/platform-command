@@ -1,3 +1,4 @@
+// @ts-nocheck
 export function escapeXml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')

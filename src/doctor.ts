@@ -1,3 +1,4 @@
+// @ts-nocheck
 import fs from 'node:fs';
 import { listCommands, loadCommand } from './command_store.js';
 import { verifyCommand } from './verify.js';

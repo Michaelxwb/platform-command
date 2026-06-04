@@ -4,16 +4,19 @@
   "description": "MCP-first command framework for reusable platform operations with extensible JSON commands.",
   "type": "module",
   "bin": {
-    "platform-command": "./src/cli.js"
+    "platform-command": "./dist/src/cli.js"
   },
   "scripts": {
-    "test": "node tests/run-tests.js",
-    "verify:demo": "node src/cli.js verify --command demo.search_example",
-    "dry-run:demo": "node src/cli.js execute --command demo.search_example --dry-run keyword=abc",
-    "verify:workflow": "node src/cli.js verify --command demo.workflow_example",
-    "dry-run:workflow": "node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5",
-    "mcp": "node src/cli.js mcp",
-    "list": "node src/cli.js list --json"
+    "test": "node dist/tests/run-tests.js",
+    "verify:demo": "node dist/src/cli.js verify --command demo.search_example",
+    "dry-run:demo": "node dist/src/cli.js execute --command demo.search_example --dry-run keyword=abc",
+    "verify:workflow": "node dist/src/cli.js verify --command demo.workflow_example",
+    "dry-run:workflow": "node dist/src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5",
+    "mcp": "node dist/src/cli.js mcp",
+    "list": "node dist/src/cli.js list --json",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build && npm test"
   },
   "keywords": [
     "mcp",
@@ -29,14 +32,16 @@
     "playwright": "^1.52.0"
   },
   "files": [
-    "src/",
+    "dist/src/",
+    "dist/commands/",
     "commands/",
     "platforms/",
     "templates/",
     "docs/",
     "examples/",
     "README.md",
-    "SKILL.md"
+    "SKILL.md",
+    "LICENSE"
   ],
   "repository": {
     "type": "git",
@@ -51,5 +56,9 @@
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3"
   }
 }

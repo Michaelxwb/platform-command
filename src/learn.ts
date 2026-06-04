@@ -1,3 +1,4 @@
+// @ts-nocheck
 import path from 'node:path';
 import { ROOT, maskHeaders, timestamp, writeJson, redactSensitive } from './utils.js';
 

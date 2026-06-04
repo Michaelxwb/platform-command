@@ -1,3 +1,4 @@
+// @ts-nocheck
 export function describeSessionRef(sessionRef) {
   if (!sessionRef) return null;
   return {

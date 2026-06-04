@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { commandResourceRoot, loadCommand } from './command_store.js';
 import { resolveCommandParams } from './params_resolver.js';
 import { buildWorkflowPlan, normalizeRecipe, renderValue } from './workflow.js';

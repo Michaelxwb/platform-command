@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Infer what execution capabilities a command needs so callers (schedule /
 // doctor) can decide whether a host can actually run it unattended.
 // Explicit `command.requires` wins; otherwise fall back to heuristics.

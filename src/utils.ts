@@ -1,9 +1,22 @@
+// @ts-nocheck
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-export const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+const MODULE_ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+function findPackageRoot(startDir) {
+  let dir = path.resolve(startDir);
+  const root = path.parse(dir).root;
+  while (dir && dir !== root) {
+    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(path.join(dir, 'commands'))) return dir;
+    dir = path.dirname(dir);
+  }
+  return MODULE_ROOT;
+}
+
+export const ROOT = findPackageRoot(MODULE_ROOT);
 
 export function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));

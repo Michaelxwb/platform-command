@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { pathToFileURL } from 'node:url';
 import { renderValue } from './workflow.js';
 import { resolveCommandResource } from './command_store.js';

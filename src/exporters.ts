@@ -1,3 +1,4 @@
+// @ts-nocheck
 import fs from 'node:fs';
 import path from 'node:path';
 import { columnName, escapeXml, zipStore } from './ooxml.js';

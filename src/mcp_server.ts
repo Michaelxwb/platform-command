@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 import readline from 'node:readline';
 import { createRequire } from 'node:module';
 import { listCommands, loadCommand } from './command_store.js';
@@ -11,7 +12,14 @@ import { buildScheduleSpec } from './schedule.js';
 import { generateCommandDocs } from './docs.js';
 
 const require = createRequire(import.meta.url);
-const pkg = require('../package.json');
+const pkg = (() => {
+  try {
+    return require('../package.json');
+  } catch (error) {
+    if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+    return require('../../package.json');
+  }
+})();
 const SERVER_INFO = { name: 'platform-command', version: pkg.version };
 
 export const MCP_TOOLS = [

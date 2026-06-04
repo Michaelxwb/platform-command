@@ -1,3 +1,4 @@
+// @ts-nocheck
 import fs from 'node:fs';
 
 const LEGACY_TEXT_TYPE = 'manual_check';

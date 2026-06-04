@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { redactSensitive } from './utils.js';
 
 export function findTemplateExpressions(value, found = []) {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,9 +22,18 @@ import { describeCommand } from '../src/describe.js';
 import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
 const require = createRequire(import.meta.url);
-const pkg = require('../package.json');
+const pkg = (() => {
+  try {
+    return require('../package.json');
+  } catch (error) {
+    if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+    return require('../../package.json');
+  }
+})();
 
 const commandsDir = path.join(process.cwd(), 'commands');
+const CLI_PATH = fs.existsSync(path.join(process.cwd(), 'dist/src/cli.js')) ? 'dist/src/cli.js' : 'src/cli.js';
+const MCP_SERVER_PATH = fs.existsSync(path.join(process.cwd(), 'dist/src/mcp_server.js')) ? 'dist/src/mcp_server.js' : 'src/mcp_server.js';
 
 
 const afterBoundaryCommand = {
@@ -121,26 +131,26 @@ assert.equal(merged.page, 2);
 assert.equal(typeof merged.page, 'number');
 assert.throws(() => mergeParams(demo.command, { keyword: 'abc', page: 'NaN-ish' }), /must be a number/);
 
-const help = execFileSync('node', ['src/cli.js', '--help'], { encoding: 'utf8' });
+const help = execFileSync('node', [CLI_PATH, '--help'], { encoding: 'utf8' });
 assert.match(help, /--execute-real --confirm/);
 
-const dry = execFileSync('node', ['src/cli.js', 'execute', '--command', 'demo.search_example', '--dry-run', 'keyword=abc'], { encoding: 'utf8' });
+const dry = execFileSync('node', [CLI_PATH, 'execute', '--command', 'demo.search_example', '--dry-run', 'keyword=abc'], { encoding: 'utf8' });
 const parsed = JSON.parse(dry);
 assert.equal(parsed.status, 'dry_run');
 assert.equal(parsed.params.keyword, 'abc');
 assert.equal(parsed.params.page, 1);
 assert.ok(parsed.runId, 'dry-run execution should record a run id');
 
-const runsJson = JSON.parse(execFileSync('node', ['src/cli.js', 'runs', '--json'], { encoding: 'utf8' }));
+const runsJson = JSON.parse(execFileSync('node', [CLI_PATH, 'runs', '--json'], { encoding: 'utf8' }));
 assert.equal(typeof runsJson.total, 'number');
 assert.ok(Array.isArray(runsJson.runs));
 assert.ok(runsJson.runs.some((run) => run.id === parsed.runId), 'runs should include dry-run execution record');
 
-const conflict = spawnSync('node', ['src/cli.js', 'execute', '--command', 'demo.search_example', '--dry-run', '--execute-real', 'keyword=abc'], { encoding: 'utf8' });
+const conflict = spawnSync('node', [CLI_PATH, 'execute', '--command', 'demo.search_example', '--dry-run', '--execute-real', 'keyword=abc'], { encoding: 'utf8' });
 assert.notEqual(conflict.status, 0);
 assert.match(conflict.stderr, /cannot be used together/);
 
-const realWithoutConfirm = spawnSync('node', ['src/cli.js', 'execute', '--command', 'demo.search_example', '--execute-real', 'keyword=abc'], { encoding: 'utf8' });
+const realWithoutConfirm = spawnSync('node', [CLI_PATH, 'execute', '--command', 'demo.search_example', '--execute-real', 'keyword=abc'], { encoding: 'utf8' });
 assert.notEqual(realWithoutConfirm.status, 0);
 assert.match(realWithoutConfirm.stderr, /requires --confirm/);
 
@@ -173,7 +183,7 @@ try {
   fs.rmSync(externalCommandsDir, { recursive: true, force: true });
 }
 
-const listJson = JSON.parse(execFileSync('node', ['src/cli.js', 'list', '--json'], { encoding: 'utf8' }));
+const listJson = JSON.parse(execFileSync('node', [CLI_PATH, 'list', '--json'], { encoding: 'utf8' }));
 const listedBuiltin = listJson.commands.find((item) => item.name === 'demo.search_example' && item.source === 'builtin');
 assert.ok(listedBuiltin);
 assert.equal(listedBuiltin.package.type, 'builtin');
@@ -213,21 +223,21 @@ const nlDefaultIssues = parseNaturalLanguage('列出 GitHub 仓库 Michaelxwb/pl
 assert.equal(nlDefaultIssues.command, 'github.list_issues');
 assert.deepEqual(nlDefaultIssues.params, { owner: 'Michaelxwb', repo: 'platform-command' });
 
-const githubDefaultDry = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--command', 'github.list_issues', '--dry-run', 'owner=2aronS', 'repo=Duel-Agents'], { encoding: 'utf8' }));
+const githubDefaultDry = JSON.parse(execFileSync('node', [CLI_PATH, 'execute', '--command', 'github.list_issues', '--dry-run', 'owner=2aronS', 'repo=Duel-Agents'], { encoding: 'utf8' }));
 assert.equal(githubDefaultDry.params.state, 'all');
 assert.equal(githubDefaultDry.params.outputPath, 'runs/github-issues.xlsx');
 assert.equal(githubDefaultDry.paramsMeta.sources.state, 'command.defaultConfig.global');
-const githubSubjectDry = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--command', 'github.list_issues', '--dry-run', 'repo=platform-command'], { encoding: 'utf8' }));
+const githubSubjectDry = JSON.parse(execFileSync('node', [CLI_PATH, 'execute', '--command', 'github.list_issues', '--dry-run', 'repo=platform-command'], { encoding: 'utf8' }));
 assert.equal(githubSubjectDry.params.owner, 'Michaelxwb');
 assert.equal(githubSubjectDry.params.state, 'open');
 assert.equal(githubSubjectDry.paramsMeta.sources.owner, 'command.defaultConfig.subjects.platform-command');
 
 const exampleExternalDir = path.join(process.cwd(), 'examples', 'external-commands');
-const externalListJson = JSON.parse(execFileSync('node', ['src/cli.js', 'list', '--json', '--commands-dir', exampleExternalDir], { encoding: 'utf8' }));
+const externalListJson = JSON.parse(execFileSync('node', [CLI_PATH, 'list', '--json', '--commands-dir', exampleExternalDir], { encoding: 'utf8' }));
 assert.ok(externalListJson.commands.some((item) => item.name === 'crm.search_customer' && item.source === 'external'));
-const externalVerifyJson = JSON.parse(execFileSync('node', ['src/cli.js', 'verify', '--commands-dir', exampleExternalDir, '--command', 'crm.search_customer'], { encoding: 'utf8' }));
+const externalVerifyJson = JSON.parse(execFileSync('node', [CLI_PATH, 'verify', '--commands-dir', exampleExternalDir, '--command', 'crm.search_customer'], { encoding: 'utf8' }));
 assert.equal(externalVerifyJson.ok, true, externalVerifyJson.errors.join('\n'));
-const externalDryJson = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--commands-dir', exampleExternalDir, '--command', 'order.refund_preview', '--dry-run', 'orderId=ORD-10001', 'reason=customer_request'], { encoding: 'utf8' }));
+const externalDryJson = JSON.parse(execFileSync('node', [CLI_PATH, 'execute', '--commands-dir', exampleExternalDir, '--command', 'order.refund_preview', '--dry-run', 'orderId=ORD-10001', 'reason=customer_request'], { encoding: 'utf8' }));
 assert.equal(externalDryJson.status, 'dry_run');
 assert.equal(externalDryJson.command, 'order.refund_preview');
 assert.equal(externalDryJson.plan.kind, 'workflow');
@@ -271,7 +281,7 @@ try {
   assert.equal(recipePlan.steps[0].request.url, 'https://example.test/search?q=alpha');
   assert.equal(recipePlan.steps[1].ui.actions[0].target, 'https://example.test/items/item-001');
 
-  const recipeDryJson = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--commands-dir', recipeCommandsDir, '--command', 'demo.light_recipe', '--dry-run', 'keyword=alpha'], { encoding: 'utf8' }));
+  const recipeDryJson = JSON.parse(execFileSync('node', [CLI_PATH, 'execute', '--commands-dir', recipeCommandsDir, '--command', 'demo.light_recipe', '--dry-run', 'keyword=alpha'], { encoding: 'utf8' }));
   assert.equal(recipeDryJson.plan.kind, 'recipe');
   assert.equal(recipeDryJson.plan.checks[0], 'Search request is prepared.');
 } finally {
@@ -283,7 +293,7 @@ const mcpInput = [
   JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
   JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'platform_command_execute', arguments: { command: 'demo.search_example', params: { keyword: 'abc' }, dryRun: true } } })
 ].join('\n') + '\n';
-const mcpRun = spawnSync('node', ['src/mcp_server.js'], { input: mcpInput, encoding: 'utf8' });
+const mcpRun = spawnSync('node', [MCP_SERVER_PATH], { input: mcpInput, encoding: 'utf8' });
 assert.equal(mcpRun.status, 0, mcpRun.stderr);
 const mcpLines = mcpRun.stdout.trim().split(/\n+/).map((line) => JSON.parse(line));
 assert.equal(mcpLines[0].result.serverInfo.name, 'platform-command');
@@ -297,7 +307,7 @@ assert.equal(workflowVerify.ok, true, workflowVerify.errors.join('\n'));
 
 const bilibiliExportVerify = verifyCommand('bilibili.export_comments');
 assert.equal(bilibiliExportVerify.ok, true, bilibiliExportVerify.errors.join('\n'));
-const bilibiliExportDry = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--command', 'bilibili.export_comments', '--dry-run', 'bvid=BV1rPDkB7ESC', 'limit=50', 'outputPath=runs/comments.xlsx'], { encoding: 'utf8' }));
+const bilibiliExportDry = JSON.parse(execFileSync('node', [CLI_PATH, 'execute', '--command', 'bilibili.export_comments', '--dry-run', 'bvid=BV1rPDkB7ESC', 'limit=50', 'outputPath=runs/comments.xlsx'], { encoding: 'utf8' }));
 assert.equal(bilibiliExportDry.status, 'dry_run');
 assert.equal(bilibiliExportDry.plan.steps.at(-1).id, 'export_file');
 assert.equal(bilibiliExportDry.plan.output.capability, 'export_excel');
@@ -383,7 +393,7 @@ try {
   }, null, 2));
   const autoExportVerify = verifyCommand('demo.auto_export', { commandsDir: autoExportDir });
   assert.equal(autoExportVerify.ok, true, autoExportVerify.errors.join('\n'));
-  const autoExportRun = JSON.parse(execFileSync('node', ['src/cli.js', 'execute', '--commands-dir', autoExportDir, '--command', 'demo.auto_export', '--execute-real', '--confirm', `outputPath=${autoExportOutput}`], { encoding: 'utf8' }));
+  const autoExportRun = JSON.parse(execFileSync('node', [CLI_PATH, 'execute', '--commands-dir', autoExportDir, '--command', 'demo.auto_export', '--execute-real', '--confirm', `outputPath=${autoExportOutput}`], { encoding: 'utf8' }));
   assert.equal(autoExportRun.status, 'executed');
   assert.equal(autoExportRun.capability, 'export_excel');
   assert.equal(autoExportRun.rows, 1);
@@ -393,7 +403,7 @@ try {
   if (fs.existsSync(autoExportOutput)) fs.unlinkSync(autoExportOutput);
 }
 
-const workflowDry = execFileSync('node', ['src/cli.js', 'execute', '--command', 'demo.workflow_example', '--dry-run', 'keyword=abc', 'limit=5'], { encoding: 'utf8' });
+const workflowDry = execFileSync('node', [CLI_PATH, 'execute', '--command', 'demo.workflow_example', '--dry-run', 'keyword=abc', 'limit=5'], { encoding: 'utf8' });
 const workflowParsed = JSON.parse(workflowDry);
 assert.equal(workflowParsed.status, 'dry_run');
 assert.equal(workflowParsed.plan.kind, 'workflow');
@@ -532,14 +542,14 @@ assert.equal(playwrightContract.artifacts.reportPath, '/tmp/platform-command-pla
 assert.deepEqual(playwrightContract.summary, { title: 'Playwright page', requestCount: 1, responseCount: 1, candidateParameterCount: 1 });
 fs.rmSync(manualLearn.runDir, { recursive: true, force: true });
 
-const manualCliRun = spawnSync('node', ['src/cli.js', 'learn', '--url', 'https://example.com', '--platform', 'demo', '--action', 'manual_cli', '--provider', 'manual'], { encoding: 'utf8' });
+const manualCliRun = spawnSync('node', [CLI_PATH, 'learn', '--url', 'https://example.com', '--platform', 'demo', '--action', 'manual_cli', '--provider', 'manual'], { encoding: 'utf8' });
 assert.equal(manualCliRun.status, 0, manualCliRun.stderr);
 const manualCliPayload = JSON.parse(manualCliRun.stdout);
 assert.equal(manualCliPayload.provider, 'manual');
 assert.equal(manualCliPayload.status, 'learned_fallback');
 fs.rmSync(manualCliPayload.runDir, { recursive: true, force: true });
 
-const badExecuteRun = spawnSync('node', ['src/cli.js', 'execute', '--command', 'demo.workflow_example', '--keyword', 'abc', '--execute-real', '--confirm'], { encoding: 'utf8' });
+const badExecuteRun = spawnSync('node', [CLI_PATH, 'execute', '--command', 'demo.workflow_example', '--keyword', 'abc', '--execute-real', '--confirm'], { encoding: 'utf8' });
 assert.notEqual(badExecuteRun.status, 0);
 assert.match(badExecuteRun.stderr, /Not executable/);
 
@@ -751,7 +761,7 @@ console.log('All tests passed.');
 
 
 // Regression: verify supports positional command names for CLI usability.
-const verifyPositional = spawnSync(process.execPath, ['src/cli.js', 'verify', 'github.list_issues'], { cwd: process.cwd(), encoding: 'utf8' });
+const verifyPositional = spawnSync(process.execPath, [CLI_PATH, 'verify', 'github.list_issues'], { cwd: process.cwd(), encoding: 'utf8' });
 assert.equal(verifyPositional.status, 0, verifyPositional.stderr || verifyPositional.stdout);
 assert.equal(JSON.parse(verifyPositional.stdout).ok, true);
 
@@ -779,26 +789,26 @@ assert.equal(sangforKeyword.params.projectName, '攻防演练');
 assert.equal(sangforKeyword.params.outputPath, 'runs/projects.xlsx');
 
 
-const scheduleJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--json', 'keyword=abc'], { encoding: 'utf8' }));
+const scheduleJson = JSON.parse(execFileSync('node', [CLI_PATH, 'schedule', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--json', 'keyword=abc'], { encoding: 'utf8' }));
 assert.equal(scheduleJson.kind, 'platform_command_schedule');
 assert.equal(scheduleJson.command, 'demo.search_example');
 assert.equal(scheduleJson.dryRun, true);
 assert.ok(scheduleJson.shellCommand.includes('demo.search_example'));
 assert.ok(scheduleJson.systemAdapters.cron.includes('0 9 * * *'));
 
-const schedulePlanJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', 'plan', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--json', 'keyword=plan'], { encoding: 'utf8' }));
+const schedulePlanJson = JSON.parse(execFileSync('node', [CLI_PATH, 'schedule', 'plan', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--json', 'keyword=plan'], { encoding: 'utf8' }));
 assert.equal(schedulePlanJson.kind, 'platform_command_schedule');
 assert.equal(schedulePlanJson.dryRun, true);
 assert.equal(schedulePlanJson.risk.commandExecutionMode, 'dry-run');
 assert.ok(schedulePlanJson.shellCommand.includes('--dry-run'));
 
-const scheduleDryRunCommandInstallJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', 'install', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--dry-run', '--dry-run-command', '--json', 'keyword=hello world'], { encoding: 'utf8' }));
+const scheduleDryRunCommandInstallJson = JSON.parse(execFileSync('node', [CLI_PATH, 'schedule', 'install', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--dry-run', '--dry-run-command', '--json', 'keyword=hello world'], { encoding: 'utf8' }));
 assert.equal(scheduleDryRunCommandInstallJson.spec.dryRun, true);
 assert.ok(scheduleDryRunCommandInstallJson.spec.shellCommand.includes('--dry-run'));
 assert.equal(scheduleDryRunCommandInstallJson.spec.risk.commandExecutionMode, 'dry-run');
 assert.ok(scheduleDryRunCommandInstallJson.spec.systemAdapters.windowsTask.arguments.includes('keyword=hello world'));
 
-const scheduleDryInstallJson = JSON.parse(execFileSync('node', ['src/cli.js', 'schedule', 'install', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--dry-run', '--json', 'keyword=install'], { encoding: 'utf8' }));
+const scheduleDryInstallJson = JSON.parse(execFileSync('node', [CLI_PATH, 'schedule', 'install', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--dry-run', '--json', 'keyword=install'], { encoding: 'utf8' }));
 assert.equal(scheduleDryInstallJson.action, 'install');
 assert.equal(scheduleDryInstallJson.dryRun, true);
 assert.ok(scheduleDryInstallJson.nextCrontab.includes('platform-command schedule begin'));
@@ -826,6 +836,6 @@ assert.equal(removedSchedule.removed, true);
 assert.equal(listSchedules(mockOptions).schedules.length, 0);
 assert.ok(mockCrontab.includes('echo keep'));
 
-const docsJson = JSON.parse(execFileSync('node', ['src/cli.js', 'docs', '--json'], { encoding: 'utf8' }));
+const docsJson = JSON.parse(execFileSync('node', [CLI_PATH, 'docs', '--json'], { encoding: 'utf8' }));
 assert.ok(docsJson.commands > 0);
 assert.ok(docsJson.markdown.includes('demo.search_example'));

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { listCommands, loadCommand } from './command_store.js';
 import { executeCommand } from './execute.js';
 

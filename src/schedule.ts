@@ -1,3 +1,4 @@
+// @ts-nocheck
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';

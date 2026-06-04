@@ -19,7 +19,7 @@
 学习一个新的平台动作。
 
 ```bash
-node src/cli.js learn --platform demo --action search_example --url https://example.com --observe-seconds 10
+platform-command learn --platform demo --action search_example --url https://example.com --observe-seconds 10
 ```
 
 learn 模式应该完成：
@@ -61,7 +61,7 @@ learn 模式应该完成：
 执行一个已学习的 command。
 
 ```bash
-node src/cli.js execute --command demo.search_example --dry-run keyword=abc
+platform-command execute --command demo.search_example --dry-run keyword=abc
 ```
 
 默认规则：
@@ -78,7 +78,7 @@ node src/cli.js execute --command demo.search_example --dry-run keyword=abc
 验证 command 模板结构是否有效。
 
 ```bash
-node src/cli.js verify --command demo.search_example
+platform-command verify --command demo.search_example
 ```
 
 verify 至少应检查：
@@ -103,7 +103,7 @@ V3 推荐把 platform-command 作为 MCP server 接入不同 Agent。MCP 暴露�
 启动方式：
 
 ```bash
-node src/cli.js mcp
+platform-command mcp
 ```
 
 支持 skill 的 Agent 仍可读取本文件作为能力说明；支持 MCP 的 Agent 优先走 MCP。
@@ -113,8 +113,8 @@ node src/cli.js mcp
 learn 优先使用 Playwright 做浏览器观察；如果 Playwright 或浏览器不可用，可以回退：
 
 ```bash
-node src/cli.js learn --platform demo --action inspect --url https://example.com --provider http
-node src/cli.js learn --platform demo --action inspect --url https://example.com --provider manual
+platform-command learn --platform demo --action inspect --url https://example.com --provider http
+platform-command learn --platform demo --action inspect --url https://example.com --provider manual
 ```
 
 HTTP fallback 会抓取页面标题、响应元信息和文本预览；manual fallback 会生成需要宿主 Agent/用户补充的 command 骨架。这样即使某些 Agent 没有强浏览器控制能力，也能产出可继续编辑的学习报告。

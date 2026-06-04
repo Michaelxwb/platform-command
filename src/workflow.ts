@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { redactSensitive } from './utils.js';
 import { buildAcceptanceContract, initializeAcceptanceEvidence } from './acceptance.js';
 export { findTemplateExpressions, renderValue } from './template.js';

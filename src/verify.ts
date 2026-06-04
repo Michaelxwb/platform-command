@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { loadCommand } from './command_store.js';
 import { UI_ACTIONS, findTemplateExpressions, normalizeRecipe, normalizeDependsOn } from './workflow.js';
 import { ACCEPTANCE_TYPES, normalizeAcceptanceCriteria } from './acceptance.js';

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 import { listCommands } from './command_store.js';
 import { executeCommand } from './execute.js';
 import { learnAction } from './learn.js';
@@ -24,36 +25,36 @@ function help() {
   console.log(`platform-command
 
 Usage:
-  node src/cli.js --help
-  node src/cli.js list [--json] [--commands-dir <dir>]
-  node src/cli.js describe <name> [--json] [key=value ...]
-  node src/cli.js explain "自然语言指令" [--json]
-  node src/cli.js agent --json
-  node src/cli.js doctor [--command <name>] [--json]
-  node src/cli.js runs [--summary] [--limit 20]
-  node src/cli.js schedule plan --command <name> --cron <expr> [--json] key=value ...
-  node src/cli.js schedule install --command <name> --cron <expr> [--dry-run|--confirm] [--dry-run-command] [--json] key=value ...
-  node src/cli.js schedule list [--json]
-  node src/cli.js schedule status --id <id> [--json]
-  node src/cli.js schedule remove --id <id> [--dry-run|--confirm] [--json]
-  node src/cli.js docs [--output <path>] [--commands-dir <dir>]
-  node src/cli.js init --platform <name> --action <name> [--dir commands]
-  node src/cli.js mcp
-  node src/cli.js verify <name> [--commands-dir <dir>]
-  node src/cli.js verify --command <name> [--commands-dir <dir>]
-  node src/cli.js execute --command <name> [--commands-dir <dir>] [--dry-run] key=value ...
-  node src/cli.js ask "自然语言指令" [--json] [--execute-real --confirm]
-  node src/cli.js execute --command <name> --execute-real --confirm key=value ...
-  node src/cli.js learn --platform <name> --action <name> --url <url> [--observe-seconds 8] [--headed]
+  platform-command --help
+  platform-command list [--json] [--commands-dir <dir>]
+  platform-command describe <name> [--json] [key=value ...]
+  platform-command explain "自然语言指令" [--json]
+  platform-command agent --json
+  platform-command doctor [--command <name>] [--json]
+  platform-command runs [--summary] [--limit 20]
+  platform-command schedule plan --command <name> --cron <expr> [--json] key=value ...
+  platform-command schedule install --command <name> --cron <expr> [--dry-run|--confirm] [--dry-run-command] [--json] key=value ...
+  platform-command schedule list [--json]
+  platform-command schedule status --id <id> [--json]
+  platform-command schedule remove --id <id> [--dry-run|--confirm] [--json]
+  platform-command docs [--output <path>] [--commands-dir <dir>]
+  platform-command init --platform <name> --action <name> [--dir commands]
+  platform-command mcp
+  platform-command verify <name> [--commands-dir <dir>]
+  platform-command verify --command <name> [--commands-dir <dir>]
+  platform-command execute --command <name> [--commands-dir <dir>] [--dry-run] key=value ...
+  platform-command ask "自然语言指令" [--json] [--execute-real --confirm]
+  platform-command execute --command <name> --execute-real --confirm key=value ...
+  platform-command learn --platform <name> --action <name> --url <url> [--observe-seconds 8] [--headed]
 
 Examples:
-  node src/cli.js verify demo.search_example
-  node src/cli.js execute --command demo.search_example --dry-run keyword=abc
-  node src/cli.js ask "在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all"
-  node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5
-  node src/cli.js execute --command demo.workflow_example --execute-real --confirm keyword=abc limit=5
-  node src/cli.js learn --platform demo --action inspect --url https://example.com --observe-seconds 3
-  node src/cli.js mcp
+  platform-command verify demo.search_example
+  platform-command execute --command demo.search_example --dry-run keyword=abc
+  platform-command ask "在 GitHub 上，查看 zhaoxuya520/reverse-skill 的 issues，状态 all"
+  platform-command execute --command demo.workflow_example --dry-run keyword=abc limit=5
+  platform-command execute --command demo.workflow_example --execute-real --confirm keyword=abc limit=5
+  platform-command learn --platform demo --action inspect --url https://example.com --observe-seconds 3
+  platform-command mcp
 `);
 }
 

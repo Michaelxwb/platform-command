@@ -5,19 +5,29 @@
 V3 的核心目标不是绑定某一个 Agent 的 skill 标准，而是提供一层稳定的“平台操作协议”：
 
 - **MCP 接入**：Claude Code、Codex、OpenClaw、Hermes Agent 等只要支持 MCP，就可以接入同一套 tools。
-- **CLI 兜底**：不支持 MCP 的环境，仍可用 `node src/cli.js ...`。
+- **CLI 兜底**：不支持 MCP 的环境，仍可用 `platform-command ...`。
 - **公共 commands + 业务 commands**：仓库自带公共指令；业务项目通过外部目录扩展，不必改框架源码。
 - **learn 可选浏览器能力**：`learn` 需要浏览器观察能力；Playwright 作为可选兜底依赖，不再是执行普通 commands 的硬前置。
 
 ## 快速开始
 
+面向普通用户，推荐直接通过 npm 安装后使用全局命令：
+
+```bash
+npm install -g @jahanxu/platform-command
+platform-command --help
+platform-command list --json
+platform-command verify --command demo.search_example
+platform-command execute --command demo.search_example --dry-run keyword=abc
+```
+
+如果是从源码开发或调试本仓库：
+
 ```bash
 npm install
+npm run build
 npm test
-node src/cli.js --help
-node src/cli.js list --json
-node src/cli.js verify --command demo.search_example
-node src/cli.js execute --command demo.search_example --dry-run keyword=abc
+npm run list
 ```
 
 ## MCP 使用
@@ -25,7 +35,7 @@ node src/cli.js execute --command demo.search_example --dry-run keyword=abc
 启动 MCP stdio server：
 
 ```bash
-node src/cli.js mcp
+platform-command mcp
 # 或
 npm run mcp
 ```
@@ -45,8 +55,8 @@ MCP server 当前提供 4 个 tools：
 {
   "mcpServers": {
     "platform-command": {
-      "command": "node",
-      "args": ["/path/to/platform-command/src/cli.js", "mcp"],
+      "command": "platform-command",
+      "args": ["mcp"],
       "env": {
         "PLATFORM_COMMANDS_DIR": "/path/to/my-business-commands"
       }
@@ -55,7 +65,7 @@ MCP server 当前提供 4 个 tools：
 }
 ```
 
-> 路径请替换为实际安装目录。业务 commands 可以通过 `PLATFORM_COMMANDS_DIR` 注入。
+> 如果你的 Agent 运行环境找不到全局命令，也可以把 `command` 改成 `npx`，`args` 改成 `["@jahanxu/platform-command", "mcp"]`。业务 commands 可以通过 `PLATFORM_COMMANDS_DIR` 注入。
 
 ## 外部 commands 扩展
 
@@ -85,16 +95,16 @@ examples/external-commands/
 你可以先直接运行示例：
 
 ```bash
-PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js list --json
-PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js verify --command crm.search_customer
-PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js execute --command crm.search_customer --dry-run keyword=alice limit=5
+PLATFORM_COMMANDS_DIR=examples/external-commands platform-command list --json
+PLATFORM_COMMANDS_DIR=examples/external-commands platform-command verify --command crm.search_customer
+PLATFORM_COMMANDS_DIR=examples/external-commands platform-command execute --command crm.search_customer --dry-run keyword=alice limit=5
 ```
 
 CLI 也支持显式参数：
 
 ```bash
-node src/cli.js verify --commands-dir examples/external-commands --command order.refund_preview
-node src/cli.js execute --commands-dir examples/external-commands --command order.refund_preview --dry-run orderId=ORD-10001 reason=customer_request
+platform-command verify --commands-dir examples/external-commands --command order.refund_preview
+platform-command execute --commands-dir examples/external-commands --command order.refund_preview --dry-run orderId=ORD-10001 reason=customer_request
 ```
 
 复制到自己的业务项目时，通常只需要改这些字段：
@@ -122,7 +132,7 @@ node src/cli.js execute --commands-dir examples/external-commands --command orde
 ```bash
 npm install
 npx playwright install chromium
-node src/cli.js learn --platform demo --action inspect_example --url https://example.com --observe-seconds 5
+platform-command learn --platform demo --action inspect_example --url https://example.com --observe-seconds 5
 ```
 
 如果运行环境没有安装 Playwright，只有调用 `learn` 时才会报出安装提示；其他 MCP/CLI command 能力不受影响。
@@ -208,24 +218,24 @@ platform-command/
 单接口/单页面回退指令：
 
 ```bash
-node src/cli.js execute --command demo.search_example --dry-run keyword=abc page=1
+platform-command execute --command demo.search_example --dry-run keyword=abc page=1
 ```
 
 多步骤 workflow 指令：
 
 ```bash
-node src/cli.js verify --command demo.workflow_example
-node src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5
+platform-command verify --command demo.workflow_example
+platform-command execute --command demo.workflow_example --dry-run keyword=abc limit=5
 ```
 
 低风险 GitHub 查询真实执行示例：
 
 ```bash
-node src/cli.js verify --command github.inspect_repository
-node src/cli.js execute --command github.inspect_repository --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill branch=main
-node src/cli.js execute --command github.list_commits --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill branch=main
-node src/cli.js execute --command github.list_issues --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill
-node src/cli.js execute --command github.search_repositories --execute-real --confirm keyword=platform-command limit=3
+platform-command verify --command github.inspect_repository
+platform-command execute --command github.inspect_repository --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill branch=main
+platform-command execute --command github.list_commits --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill branch=main
+platform-command execute --command github.list_issues --execute-real --confirm owner=zhaoxuya520 repo=reverse-skill
+platform-command execute --command github.search_repositories --execute-real --confirm keyword=platform-command limit=3
 ```
 
 默认推荐先使用 `--dry-run`，确认参数、执行路径、步骤依赖、会话引用和风险等级后，再考虑真实执行。
@@ -287,10 +297,10 @@ npx playwright install chromium   # 或指定本机 Chrome channel
 
 ```bash
 npm install
-node src/cli.js mcp
+platform-command mcp
 ```
 
-在支持 MCP 的 Agent 中，把 stdio server 配置为执行 `node /path/to/platform-command/src/cli.js mcp`。Agent 连接后可以发现：
+在支持 MCP 的 Agent 中，把 stdio server 配置为执行 `platform-command mcp`。如果 Agent 环境找不到全局命令，也可以配置为 `npx @jahanxu/platform-command mcp`。Agent 连接后可以发现：
 
 - tools：list / describe / verify / execute；
 - resources：`platform-command://commands`、`platform-command://distribution`；
@@ -303,10 +313,10 @@ node src/cli.js mcp
 ```bash
 # 方式 1：在自己的目录维护 command 包
 export PLATFORM_COMMANDS_DIR=/path/to/my-business-commands
-node src/cli.js list --json
+platform-command list --json
 
 # 方式 2：CLI 临时指定
-node src/cli.js list --json --commands-dir /path/to/my-business-commands
+platform-command list --json --commands-dir /path/to/my-business-commands
 ```
 
 外部 command 与内置 command 同名时，外部 command 优先。`list --json` 会展示每个 command 的 source 与 package 信息，便于分发和排障。
@@ -316,8 +326,8 @@ node src/cli.js list --json --commands-dir /path/to/my-business-commands
 `playwright` 是 optional dependency。没有安装 Playwright 或浏览器时，learn 不再直接失败，而是生成 fallback 报告：
 
 ```bash
-node src/cli.js learn --platform demo --action inspect --url https://example.com --provider manual
-node src/cli.js learn --platform demo --action inspect --url https://example.com --provider http
+platform-command learn --platform demo --action inspect --url https://example.com --provider manual
+platform-command learn --platform demo --action inspect --url https://example.com --provider http
 ```
 
 如果需要真实浏览器学习能力，再安装：
