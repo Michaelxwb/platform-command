@@ -16,24 +16,27 @@ export function buildScheduleSpec({
   dryRun = true,
   confirm = false,
   cwd = process.cwd(),
-  nodeBin = 'node',
-  cliPath = 'src/cli.js'
+  nodeBin = undefined,
+  cliPath = undefined,
+  cliBin = 'platform-command'
 } = {}) {
   if (!command) throw new Error('schedule requires --command');
   if (!cron) throw new Error('schedule requires --cron');
   const resolvedCwd = path.resolve(cwd);
   const normalizedParams = normalizeParams(params);
   const scheduleId = id || buildScheduleId({ command, cron, params: normalizedParams });
-  const args = [cliPath, 'execute', '--command', command];
+  const usesNodeEntrypoint = !!cliPath;
+  const program = usesNodeEntrypoint ? (nodeBin || 'node') : cliBin;
+  const args = usesNodeEntrypoint ? [cliPath, 'execute', '--command', command] : ['execute', '--command', command];
   if (dryRun) args.push('--dry-run');
   else args.push('--execute-real', '--confirm');
   for (const [key, value] of Object.entries(normalizedParams)) {
     if (value === undefined || value === null) continue;
     args.push(`${key}=${String(value)}`);
   }
-  const shellCommand = [nodeBin, ...args.map(posixShellQuote)].join(' ');
+  const shellCommand = [program, ...args.map(posixShellQuote)].join(' ');
   const cronCommand = `cd ${posixShellQuote(resolvedCwd)} && ${shellCommand}`;
-  const windowsTaskRun = buildWindowsTaskRun({ cwd: resolvedCwd, nodeBin, args });
+  const windowsTaskRun = buildWindowsTaskRun({ cwd: resolvedCwd, nodeBin: program, args });
   return {
     kind: 'platform_command_schedule',
     id: scheduleId,
@@ -51,7 +54,7 @@ export function buildScheduleSpec({
         timerOnCalendar: `cron:${cron}`
       },
       windowsTask: {
-        program: nodeBin,
+        program,
         arguments: args.map(windowsArgQuote).join(' '),
         taskRun: windowsTaskRun,
         startIn: resolvedCwd,

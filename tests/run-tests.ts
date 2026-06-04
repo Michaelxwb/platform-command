@@ -794,7 +794,11 @@ assert.equal(scheduleJson.kind, 'platform_command_schedule');
 assert.equal(scheduleJson.command, 'demo.search_example');
 assert.equal(scheduleJson.dryRun, true);
 assert.ok(scheduleJson.shellCommand.includes('demo.search_example'));
+assert.ok(scheduleJson.shellCommand.startsWith('platform-command execute '));
+assert.ok(!scheduleJson.shellCommand.includes('src/cli.js'));
 assert.ok(scheduleJson.systemAdapters.cron.includes('0 9 * * *'));
+assert.ok(scheduleJson.systemAdapters.cron.includes('platform-command execute'));
+assert.equal(scheduleJson.systemAdapters.windowsTask.program, 'platform-command');
 
 const schedulePlanJson = JSON.parse(execFileSync('node', [CLI_PATH, 'schedule', 'plan', '--command', 'demo.search_example', '--cron', '0 9 * * *', '--json', 'keyword=plan'], { encoding: 'utf8' }));
 assert.equal(schedulePlanJson.kind, 'platform_command_schedule');
@@ -813,6 +817,8 @@ assert.equal(scheduleDryInstallJson.action, 'install');
 assert.equal(scheduleDryInstallJson.dryRun, true);
 assert.ok(scheduleDryInstallJson.nextCrontab.includes('platform-command schedule begin'));
 assert.ok(scheduleDryInstallJson.nextCrontab.includes('--execute-real'));
+assert.ok(scheduleDryInstallJson.nextCrontab.includes('platform-command execute'));
+assert.ok(!scheduleDryInstallJson.nextCrontab.includes('src/cli.js'));
 
 let mockCrontab = '# user cron\n15 1 * * * echo keep\n# unrelated platform-command schedule begin broken\n0 1 * * * echo broken\n';
 const mockOptions = {
