@@ -22,16 +22,16 @@ order.refund_preview.json
 在 platform-command 项目根目录执行：
 
 ```bash
-PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js list --json
-PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js verify --command crm.search_customer
-PLATFORM_COMMANDS_DIR=examples/external-commands node src/cli.js execute --command crm.search_customer --dry-run keyword=alice limit=5
+PLATFORM_COMMANDS_DIR=examples/external-commands platform-command list --json
+PLATFORM_COMMANDS_DIR=examples/external-commands platform-command verify --command crm.search_customer
+PLATFORM_COMMANDS_DIR=examples/external-commands platform-command execute --command crm.search_customer --dry-run keyword=alice limit=5
 ```
 
 显式传参也可以：
 
 ```bash
-node src/cli.js verify --commands-dir examples/external-commands --command order.refund_preview
-node src/cli.js execute --commands-dir examples/external-commands --command order.refund_preview --dry-run orderId=ORD-10001 reason=customer_request
+platform-command verify --commands-dir examples/external-commands --command order.refund_preview
+platform-command execute --commands-dir examples/external-commands --command order.refund_preview --dry-run orderId=ORD-10001 reason=customer_request
 ```
 
 ## 最小结构

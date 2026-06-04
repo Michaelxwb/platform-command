@@ -71,7 +71,7 @@ cp examples/external-commands/crm.search_customer.json my-business-commands/crm.
 执行时传参：
 
 ```bash
-node src/cli.js execute --commands-dir my-business-commands --command crm.search_customer --dry-run keyword=alice limit=5
+platform-command execute --commands-dir my-business-commands --command crm.search_customer --dry-run keyword=alice limit=5
 ```
 
 ## 4. 写 execution
@@ -174,21 +174,21 @@ node src/cli.js execute --commands-dir my-business-commands --command crm.search
 先验证结构：
 
 ```bash
-node src/cli.js verify --commands-dir my-business-commands --command crm.search_customer
+platform-command verify --commands-dir my-business-commands --command crm.search_customer
 ```
 
 再 dry-run：
 
 ```bash
-node src/cli.js execute --commands-dir my-business-commands --command crm.search_customer --dry-run keyword=alice limit=5
+platform-command execute --commands-dir my-business-commands --command crm.search_customer --dry-run keyword=alice limit=5
 ```
 
 也可以用环境变量加载：
 
 ```bash
-PLATFORM_COMMANDS_DIR=my-business-commands node src/cli.js list --json
-PLATFORM_COMMANDS_DIR=my-business-commands node src/cli.js verify --command crm.search_customer
-PLATFORM_COMMANDS_DIR=my-business-commands node src/cli.js execute --command crm.search_customer --dry-run keyword=alice limit=5
+PLATFORM_COMMANDS_DIR=my-business-commands platform-command list --json
+PLATFORM_COMMANDS_DIR=my-business-commands platform-command verify --command crm.search_customer
+PLATFORM_COMMANDS_DIR=my-business-commands platform-command execute --command crm.search_customer --dry-run keyword=alice limit=5
 ```
 
 ## 7. 从 learn 产物生成 command
@@ -196,7 +196,7 @@ PLATFORM_COMMANDS_DIR=my-business-commands node src/cli.js execute --command crm
 如果你先运行 learn：
 
 ```bash
-node src/cli.js learn --platform crm --action search_customer --url https://crm.example.com/customers --provider manual
+platform-command learn --platform crm --action search_customer --url https://crm.example.com/customers --provider manual
 ```
 
 查看产物：
