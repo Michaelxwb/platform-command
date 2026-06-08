@@ -12,7 +12,7 @@ export async function readDataSource(dataSource, params = {}, options = {}) {
 }
 
 async function readHttpJsonSource(dataSource, params, options) {
-  const context = { params, steps: {}, cursor: {}, warnings: [], commandDir: options.commandDir };
+  const context = { params, steps: {}, cursor: {}, warnings: [], commandDir: options.commandDir, viaBrowser: !!options.viaBrowser, session: options.session || {} };
   let rows = [];
   let title = dataSource.title || '';
   const meta = {};
@@ -73,15 +73,27 @@ async function fetchStepJson(step, context) {
   for (const [key, value] of Object.entries(query)) target.searchParams.set(key, String(value));
   const method = String(request.method || 'GET').toUpperCase();
   const headers = { ...(request.headers || {}) };
-  const init = { method, headers, signal: AbortSignal.timeout(Number(request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS)) };
+
+  let body;
   if (request.body !== undefined && !['GET', 'HEAD'].includes(method)) {
     const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === 'content-type');
-    if (typeof request.body === 'string' || request.body instanceof Uint8Array) init.body = request.body;
+    if (typeof request.body === 'string' || request.body instanceof Uint8Array) body = request.body;
     else {
-      init.body = JSON.stringify(request.body);
+      body = JSON.stringify(request.body);
       if (!hasContentType) headers['content-type'] = 'application/json';
     }
   }
+
+  if (context.viaBrowser) {
+    const { fetchViaWebbridge } = await import('./webbridge.js');
+    const result = await fetchViaWebbridge(String(target), { method, headers, body, timeoutMs: request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS });
+    const expectedCode = request.expect?.bodyCode;
+    if (expectedCode !== undefined && result.code !== expectedCode) throw new Error(`Unexpected body.code ${result.code}: ${result.message || ''}`.trim());
+    return result;
+  }
+
+  const init = { method, headers, signal: AbortSignal.timeout(Number(request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS)) };
+  if (body !== undefined) init.body = body;
   const response = await fetch(target, init);
   if (!response.ok) {
     const authHint = [401, 403].includes(response.status)
@@ -93,10 +105,10 @@ async function fetchStepJson(step, context) {
     err.authRequired = [401, 403].includes(response.status);
     throw err;
   }
-  const body = await response.json();
+  const responseBody = await response.json();
   const expectedCode = request.expect?.bodyCode;
-  if (expectedCode !== undefined && body.code !== expectedCode) throw new Error(`Unexpected body.code ${body.code}: ${body.message || ''}`.trim());
-  return body;
+  if (expectedCode !== undefined && responseBody.code !== expectedCode) throw new Error(`Unexpected body.code ${responseBody.code}: ${responseBody.message || ''}`.trim());
+  return responseBody;
 }
 
 async function signQueryWithCommandCode(query, signer, context) {
