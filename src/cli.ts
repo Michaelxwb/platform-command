@@ -64,7 +64,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg.startsWith('--')) {
       const key = arg.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-      if (['dryRun', 'dryRunCommand', 'confirm', 'headed', 'executeReal', 'json'].includes(key)) out[key] = true;
+      if (['dryRun', 'dryRunCommand', 'confirm', 'headed', 'executeReal', 'json', 'summary', 'force'].includes(key)) out[key] = true;
       else out[key] = argv[++i];
     } else {
       out._.push(arg);
