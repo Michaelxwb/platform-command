@@ -4,10 +4,40 @@ import path from 'node:path';
 import { renderValue } from './workflow.js';
 import { exportRows, normalizeCapability } from './exporters.js';
 import { readDataSource } from './data_sources.js';
-import { requiresBrowser } from './requirements.js';
+import { inferRequirements } from './requirements.js';
+
+// Select the fetch adapter required by the command and prepare its context.
+// Returns { viaBrowser, session } — the caller passes these into readDataSource.
+//
+// Decision rule:
+//   runtime.auth.type === 'browser_session_cookie'  → primary HTTP path needs
+//     httpOnly cookies from a live browser; must use webbridge.
+//   everything else (plain API, bearer token, UI-only fallback)  → Node fetch
+//     is sufficient for the dataSource; UI steps are handled separately.
+async function resolveAdapter(command) {
+  const authType = command.runtime?.auth?.type || '';
+  const needsBrowserFetch = authType === 'browser_session_cookie';
+
+  if (needsBrowserFetch) {
+    const { ensureBrowserSession, resolveSessionFromBrowser } = await import('./webbridge.js');
+    const targetUrl = command.learnedFrom?.url || extractTargetUrl(command);
+    if (!targetUrl) {
+      throw new Error(
+        `此命令需要已登录的浏览器会话（sessionRef: ${command.sessionRef || '?'}），` +
+        `但未找到目标 URL（learnedFrom.url 未设置）。` +
+        (command.runtime?.unauthorizedHint ? `\n提示: ${command.runtime.unauthorizedHint}` : '')
+      );
+    }
+    await ensureBrowserSession(targetUrl, { unauthorizedHint: command.runtime?.unauthorizedHint });
+    const session = await resolveSessionFromBrowser();
+    return { viaBrowser: true, session };
+  }
+
+  // Plain HTTP or token-based auth — Node fetch is sufficient.
+  return { viaBrowser: false, session: {} };
+}
 
 function extractTargetUrl(command) {
-  // Try to infer a base URL from the dataSource or execution config
   const steps = command.dataSource?.steps || [];
   for (const step of steps) {
     const url = step.request?.url;
@@ -31,27 +61,7 @@ export const JSON_CAPABILITIES = new Set(['return_json', 'save_json']);
 export async function executeAutoCapability(command, params, options = {}) {
   if (!hasAutoCapability(command)) return null;
 
-  // Pre-flight: commands that need browser session must have webbridge + active tab.
-  let viaBrowser = false;
-  if (requiresBrowser(command)) {
-    const { ensureBrowserSession } = await import('./webbridge.js');
-    const targetUrl = command.learnedFrom?.url || extractTargetUrl(command);
-    if (!targetUrl) {
-      throw new Error(
-        `此命令需要已登录的浏览器会话（sessionRef: ${command.sessionRef || '?'}），` +
-        `但未找到目标 URL（learnedFrom.url 未设置）。` +
-        (command.runtime?.unauthorizedHint ? `\n提示: ${command.runtime.unauthorizedHint}` : '')
-      );
-    }
-    await ensureBrowserSession(targetUrl, { unauthorizedHint: command.runtime?.unauthorizedHint });
-    viaBrowser = true;
-  }
-
-  let session = {};
-  if (viaBrowser) {
-    const { resolveSessionFromBrowser } = await import('./webbridge.js');
-    session = await resolveSessionFromBrowser();
-  }
+  const { viaBrowser, session } = await resolveAdapter(command);
 
   const context = { params, steps: {}, warnings: [], session };
   const dataSource = renderValue(command.dataSource, context);

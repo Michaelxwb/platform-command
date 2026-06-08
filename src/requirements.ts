@@ -1,22 +1,34 @@
 // @ts-nocheck
 // Infer what execution capabilities a command needs so callers (schedule /
-// doctor) can decide whether a host can actually run it unattended.
-// Explicit `command.requires` wins; otherwise fall back to heuristics.
+// doctor / capabilities) can decide which adapter to use.
 //
-//   http    - plain HTTP, Node can run it (public read APIs)
-//   session - needs an interactive logged-in browser session (httpOnly cookie /
-//             CSRF / zero-trust). NOT the same as a bearer token from env.
-//   ui      - needs real page interaction (click/fill/shadow DOM)
+// Priority: command.requires (explicit) > runtime.auth.type > heuristics
+//
+//   http    - plain HTTP with Node fetch (public APIs, bearer token from env)
+//   session - needs a logged-in browser session (httpOnly cookie / CSRF /
+//             zero-trust). NOT the same as a bearer token.
+//   ui      - needs real DOM interaction (click/fill/shadow DOM)
 export function inferRequirements(command = {}) {
   const base = { http: false, session: false, ui: false };
+
+  // Explicit declaration wins.
   if (command.requires && typeof command.requires === 'object' && !Array.isArray(command.requires)) {
     return { ...base, ...command.requires };
   }
+
+  // runtime.auth.type is the preferred explicit field for auth dependency.
+  const authType = command.runtime?.auth?.type || '';
+  if (authType === 'browser_session_cookie') base.session = true;
+  if (authType === 'bearer_token' || authType === 'api_key') base.http = true;
+
+  // Heuristic fallbacks.
   if (command.dataSource?.type === 'http_json' || command.execution?.api) base.http = true;
 
-  const sessionRef = String(command.sessionRef || '');
-  if (/browser|prelogged|webbridge|playwright|atrust|cookie-session/i.test(sessionRef)) base.session = true;
-  if (/\{\{\s*session\./i.test(safeStringify(command))) base.session = true;
+  if (!base.session) {
+    const sessionRef = String(command.sessionRef || '');
+    if (/browser|prelogged|webbridge|playwright|atrust|cookie-session/i.test(sessionRef)) base.session = true;
+    if (/\{\{\s*session\./i.test(safeStringify(command))) base.session = true;
+  }
 
   const steps = collectSteps(command);
   if (steps.some((step) => step.type === 'ui' || step.ui)) base.ui = true;
