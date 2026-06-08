@@ -37,7 +37,7 @@ export function parseNaturalLanguage(input, options = {}) {
 export async function runNaturalLanguage(input, options = {}) {
   const parsed = parseNaturalLanguage(input, options);
   const result = await executeCommand(parsed.command, parsed.params, {
-    dryRun: !options.executeReal,
+    dryRun: options.dryRun !== false,
     confirm: options.confirm,
     commandsDir: options.commandsDir
   });
