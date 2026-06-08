@@ -4,6 +4,7 @@ import { resolveCommandParams } from './params_resolver.js';
 import { planCommand, getExecutionCapability } from './execute.js';
 import { parseNaturalLanguage } from './nl.js';
 import { redactSensitive } from './utils.js';
+import { inferRequirements } from './requirements.js';
 
 export function describeCommand(commandName, options = {}) {
   const { command, file, source } = loadCommand(commandName, { commandsDir: options.commandsDir });
@@ -25,7 +26,8 @@ export function describeCommand(commandName, options = {}) {
     file,
     source,
     riskLevel: command.riskLevel || 'unknown',
-    auth: command.auth || command.authentication || null,
+    auth: command.runtime?.auth || command.auth || command.authentication || null,
+    requirements: inferRequirements(command),
     parameters: command.parameters || {},
     defaults: command.defaultConfig || command.defaults || null,
     paramResolution,

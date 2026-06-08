@@ -7,6 +7,7 @@ import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
 import { executeAutoCapability, hasAutoCapability } from './capabilities.js';
 import { recordRun } from './runs.js';
+import { inferRequirements } from './requirements.js';
 
 export function getExecutionCapability(command) {
   if (hasAutoCapability(command)) {
@@ -48,6 +49,7 @@ export async function executeCommand(commandName, providedParams = {}, options =
   const dryRun = options.dryRun !== false;
   const plan = buildExecutionPlan(command, params, { failOnUnresolvedTemplates: options.dryRun === false });
   if (dryRun) {
+    const readiness = await checkReadiness(command);
     const response = {
       status: 'dry_run',
       file,
@@ -55,6 +57,8 @@ export async function executeCommand(commandName, providedParams = {}, options =
       riskLevel: command.riskLevel,
       params: redactSensitive(params),
       paramsMeta: redactSensitive(paramsMeta),
+      requirements: readiness.requirements,
+      readiness: readiness.status,
       session: describeSessionRef(plan.sessionRef || command.sessionRef),
       plan
     };
@@ -169,4 +173,35 @@ function runStatusFromAcceptance(execStatus, acceptance) {
   if (acceptance?.status === 'failed') return 'failed';
   if (acceptance?.status === 'incomplete') return 'incomplete';
   return execStatus || 'success';
+}
+
+// Quick adapter availability check for dry-run readiness reporting.
+// Never throws — returns a status object so the caller can surface it to the user.
+async function checkReadiness(command) {
+  const requirements = inferRequirements(command);
+  const adapters = { nodeHttp: true, webbridge: false };
+  const blockers = [];
+
+  if (requirements.session || requirements.ui) {
+    try {
+      const { checkWebbridge } = await import('./webbridge.js');
+      const wb = await checkWebbridge();
+      adapters.webbridge = wb.running;
+    } catch {
+      adapters.webbridge = false;
+    }
+    if (!adapters.webbridge) {
+      const hint = command.runtime?.unauthorizedHint || '';
+      blockers.push(`此命令需要浏览器会话（${command.runtime?.auth?.type || 'browser_session'}），但 kimi-webbridge 未运行。${hint ? hint : '请先启动浏览器桥接。'}`);
+    }
+  }
+
+  return {
+    requirements,
+    status: {
+      ready: blockers.length === 0,
+      adapters,
+      blockers
+    }
+  };
 }
