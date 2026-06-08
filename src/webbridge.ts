@@ -91,8 +91,10 @@ export async function ensureBrowserSession(targetUrl, options = {}) {
     throw new Error(`此命令需要已登录的浏览器会话，但 kimi-webbridge 未运行。请先启动浏览器桥接后重试。${hint}`);
   }
 
-  // Check if there's already a tab on the target domain
-  let hasTab = false;
+  // Navigate to targetUrl if not already on the exact page.
+  // Hostname-only matching is insufficient: some platforms (e.g. aTrust/sangfor)
+  // refresh session state only when the user navigates to the specific app path.
+  let currentHref = '';
   try {
     const probe = await fetch(`${WEBBRIDGE_BASE}/command`, {
       method: 'POST',
@@ -102,18 +104,21 @@ export async function ensureBrowserSession(targetUrl, options = {}) {
     });
     const probeResult = await probe.json();
     if (probeResult.ok) {
-      const { href } = JSON.parse(probeResult.data.value);
-      const targetHost = new URL(targetUrl).hostname;
-      hasTab = new URL(href).hostname.includes(targetHost) || href.includes(targetHost);
+      currentHref = JSON.parse(probeResult.data.value).href || '';
     }
-  } catch {
-    hasTab = false;
-  }
+  } catch { /* ignore */ }
 
-  if (!hasTab) {
-    const targetHost = new URL(targetUrl).hostname;
-    await navigateTo(targetUrl, targetHost);
-    // Wait for page to load
+  const target = new URL(targetUrl);
+  const current = currentHref ? (() => { try { return new URL(currentHref); } catch { return null; } })() : null;
+  // For SPAs, pathname is constant; the hash fragment identifies the actual page.
+  const onTargetPage = current &&
+    current.hostname === target.hostname &&
+    current.pathname === target.pathname &&
+    current.hash === target.hash;
+
+  if (!onTargetPage) {
+    await navigateTo(targetUrl, target.hostname);
+    // Wait for page to load and session to initialize
     await new Promise((r) => setTimeout(r, 3000));
   }
 }

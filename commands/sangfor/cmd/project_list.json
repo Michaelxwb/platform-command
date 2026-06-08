@@ -194,13 +194,13 @@
         "expect": {
           "minCount": 1,
           "requiredColumns": [
-            "projectName",
-            "pmName",
-            "customerName",
-            "customerIndustry",
-            "projectLevel",
-            "productLine",
-            "createTime"
+            "项目名称",
+            "项目经理",
+            "客户名称",
+            "客户行业",
+            "项目级别",
+            "产品线",
+            "创建时间"
           ]
         }
       },

@@ -7,3 +7,4 @@ verification_*_report.json
 .idea
 
 dist/
+temp/

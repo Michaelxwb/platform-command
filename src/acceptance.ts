@@ -127,9 +127,11 @@ function autoEvaluate(criterion, result) {
     const count = Array.isArray(rows) ? rows.length : Number(rows) || 0;
     const minCount = Number(criterion.expect?.minCount ?? 1);
     const requiredColumns = Array.isArray(criterion.expect?.requiredColumns) ? criterion.expect.requiredColumns : [];
+    // When rows is a count (export commands return row count, not row objects),
+    // fall back to result.columns which holds the exported column name list.
     const presentColumns = Array.isArray(rows)
       ? Array.from(new Set(rows.flatMap((row) => row && typeof row === 'object' ? Object.keys(row) : []))).sort()
-      : [];
+      : Array.isArray(result.columns) ? result.columns.map((c) => (typeof c === 'object' ? c.title || c.key || c : String(c))) : [];
     const missingColumns = requiredColumns.filter((column) => !presentColumns.includes(column));
     return {
       passed: count >= minCount && missingColumns.length === 0,
