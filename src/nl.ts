@@ -171,10 +171,6 @@ function regexGroup(text, pattern, group = 1) {
   return m ? String(m[group] || '').trim() : '';
 }
 
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function cleanupText(value, cleanup) {
   let result = String(value || '').trim();
   if (cleanup === 'limitClause') result = result.replace(/，?\s*(?:最多|limit|限制)\s*[:：=]?\s*\d+.*$/i, '').trim();

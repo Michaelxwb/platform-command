@@ -40,14 +40,20 @@ platform-command mcp
 npm run mcp
 ```
 
-MCP server 当前提供 4 个 tools：
+MCP server 当前提供 10 个 tools：
 
 | Tool | 作用 |
 | --- | --- |
 | `platform_command_list` | 列出可用 commands |
 | `platform_command_describe` | 查看单个 command 定义、参数和风险等级 |
+| `platform_command_explain` | 自然语言解析并匹配 command |
+| `platform_command_agent_manifest` | 返回 Agent 友好的 command 清单 |
+| `platform_command_doctor` | 对 command 做健康检查 |
 | `platform_command_verify` | 校验 command / workflow 结构 |
 | `platform_command_execute` | 执行 command；默认 dry-run |
+| `platform_command_schedule` | 生成宿主调度器规格（不自动安装） |
+| `platform_command_docs` | 生成 command 目录 Markdown 文档 |
+| `platform_command_learn` | 从 URL 学习平台动作，生成 command 草案 |
 
 典型 Agent MCP 配置示例：
 
@@ -152,21 +158,35 @@ platform-command/
 ├── SKILL.md                         # skill-style 能力说明，保留给支持 skill 的 Agent
 ├── README.md                        # 项目说明
 ├── package.json                     # Node.js 项目配置
-├── src/
-│   ├── cli.js                       # CLI 入口，包含 mcp 子命令
-│   ├── mcp_server.js                # MCP stdio server
-│   ├── command_store.js             # 内置/外部 command 读取、列表、参数合并
-│   ├── execute.js                   # 指令执行 / workflow dry-run
-│   ├── learn.js                     # 浏览器页面学习；Playwright 动态可选导入
-│   ├── workflow.js                  # 多步骤 API/UI workflow 计划生成
-│   ├── session.js                   # 安全会话引用说明
-│   ├── utils.js                     # 通用工具函数
-│   └── verify.js                    # command / workflow 结构校验
+├── tsconfig.json                    # TypeScript 编译配置
+├── src/                             # TypeScript 源码（编译产物在 dist/）
+│   ├── cli.ts                       # CLI 入口，包含所有子命令
+│   ├── mcp_server.ts                # MCP stdio server（tools/resources/prompts）
+│   ├── command_store.ts             # 内置/外部 command 读取、列表、参数合并
+│   ├── execute.ts                   # 指令执行 / workflow dry-run
+│   ├── describe.ts                  # command 描述、自然语言解析、agent manifest
+│   ├── learn.ts                     # 浏览器页面学习；Playwright 动态可选导入
+│   ├── workflow.ts                  # 多步骤 API/UI workflow 计划生成
+│   ├── schedule.ts                  # 宿主调度器规格生成与 crontab/schtasks 安装
+│   ├── capabilities.ts              # auto_capability 执行引擎
+│   ├── data_sources.ts              # HTTP JSON 数据源读取
+│   ├── exporters.ts                 # Excel/Word/PPT 导出
+│   ├── acceptance.ts                # 验收合同构建与自动评估
+│   ├── params_resolver.ts           # 多层默认参数合并
+│   ├── nl.ts                        # 自然语言指令解析与执行
+│   ├── doctor.ts                    # command 健康检查
+│   ├── verify.ts                    # command / workflow 结构校验
+│   ├── runs.ts                      # 运行记录读写
+│   ├── docs.ts                      # command 文档生成
+│   ├── init.ts                      # command 脚手架初始化
+│   ├── session.ts                   # 安全会话引用说明
+│   ├── requirements.ts              # command 执行能力推断
+│   ├── template.ts                  # Mustache 模板渲染
+│   └── utils.ts                     # 通用工具函数
 ├── commands/                        # 公共内置 commands
 ├── platforms/                       # 平台资料与约束
-├── runs/                            # learn 执行产物
-├── templates/                       # 模板文件
-├── examples/                        # 使用示例
+├── templates/                       # command/profile 模板文件
+├── examples/                        # 使用示例与外部 command 示例
 ├── docs/                            # 文档
 └── tests/                           # 本地测试
 ```
@@ -206,6 +226,67 @@ platform-command/
 ```
 
 旧版 `execution.workflow.steps` 仍然兼容；新 command 建议优先写顶层 `steps` / `checks`，避免把简单业务流程设计成重型 workflow/adapter。
+
+## 其他常用命令
+
+**新建 command 脚手架**
+
+```bash
+platform-command init --platform crm --action search_customer
+# 在 commands/ 生成 crm.search_customer.json 骨架，可直接 verify
+platform-command verify --command crm.search_customer
+```
+
+**自然语言解析与执行**
+
+```bash
+# 解析自然语言，输出匹配的 command 和参数（不执行）
+platform-command ask "在 GitHub 上查看 Michaelxwb/platform-command 的 issues，状态 all"
+
+# 解析并执行 dry-run
+platform-command ask "列出 GitHub 仓库 Michaelxwb/platform-command 的 commits，分支 master" --json
+```
+
+**查看运行记录**
+
+```bash
+platform-command runs                 # 最近 20 次运行记录
+platform-command runs --summary       # 按 status 汇总
+platform-command runs --limit 50      # 最近 50 条
+```
+
+**健康检查**
+
+```bash
+platform-command doctor --command github.list_issues   # 检查单个 command
+platform-command doctor                                # 检查所有 command + 环境
+```
+
+**定时调度规划**
+
+```bash
+# 生成调度规格（不安装）
+platform-command schedule plan --command github.list_issues --cron "0 9 * * *" --json repo=platform-command
+
+# 安装到系统 crontab（dry-run 预览）
+platform-command schedule install --command github.list_issues --cron "0 9 * * *" --dry-run repo=platform-command
+
+# 确认安装
+platform-command schedule install --command github.list_issues --cron "0 9 * * *" --confirm repo=platform-command
+
+# 查看已安装调度
+platform-command schedule list
+
+# 删除
+platform-command schedule remove --id <schedule-id> --confirm
+```
+
+**生成 command 文档**
+
+```bash
+platform-command docs                        # 输出 Markdown 到 stdout
+platform-command docs --output docs/api.md   # 写入文件
+```
 
 ## 指令生命周期
 

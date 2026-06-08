@@ -18,7 +18,7 @@ export function initCommandScaffold(options = {}) {
       subject: { type: 'string', required: false, description: 'Business subject or tenant.' }
     },
     defaultConfig: { global: {}, subjects: {} },
-    execution: { api: { method: 'GET', url: 'https://example.com' } },
+    execution: { prefer: ['api', 'ui'], api: { method: 'GET', url: 'https://example.com' } },
     successCriteria: ['Dry-run plan can be generated.'],
     failureCases: ['Missing required configuration.']
   };

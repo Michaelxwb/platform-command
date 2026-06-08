@@ -6,7 +6,7 @@ import { parseNaturalLanguage } from './nl.js';
 import { redactSensitive } from './utils.js';
 
 export function describeCommand(commandName, options = {}) {
-  const { command, file, metadata } = loadCommand(commandName, { commandsDir: options.commandsDir });
+  const { command, file, source } = loadCommand(commandName, { commandsDir: options.commandsDir });
   const params = options.params || {};
   let paramResolution = null;
   let missingRequired = [];
@@ -23,7 +23,7 @@ export function describeCommand(commandName, options = {}) {
     platform: command.platform || null,
     description: command.description || '',
     file,
-    metadata,
+    source,
     riskLevel: command.riskLevel || 'unknown',
     auth: command.auth || command.authentication || null,
     parameters: command.parameters || {},
@@ -55,21 +55,26 @@ export function explainNaturalLanguage(input, options = {}) {
 }
 
 export function buildAgentManifest(options = {}) {
-  const commands = listCommands({ detailed: true, commandsDir: options.commandsDir }).map((item) => ({
-    name: item.name,
-    platform: item.platform || null,
-    description: item.description || '',
-    riskLevel: item.riskLevel || 'unknown',
-    source: item.source,
-    package: item.package,
-    parameters: Object.fromEntries(Object.entries(item.parameters || {}).map(([name, spec]) => [name, {
-      type: spec.type || 'string',
-      required: !!spec.required,
-      description: spec.description || '',
-      enum: spec.enum || undefined,
-      default: spec.default
-    }]))
-  }));
+  const metaList = listCommands({ detailed: true, commandsDir: options.commandsDir });
+  const commands = metaList.map((item) => {
+    let command = {};
+    try { command = loadCommand(item.name, { commandsDir: options.commandsDir }).command; } catch { /* skip unloadable */ }
+    return {
+      name: item.name,
+      platform: command.platform || null,
+      description: command.description || '',
+      riskLevel: command.riskLevel || 'unknown',
+      source: item.source,
+      package: item.package,
+      parameters: Object.fromEntries(Object.entries(command.parameters || {}).map(([name, spec]) => [name, {
+        type: spec.type || 'string',
+        required: !!spec.required,
+        description: spec.description || '',
+        enum: spec.enum || undefined,
+        default: spec.default
+      }]))
+    };
+  });
   return {
     schemaVersion: 'platform-command.agent.v1',
     generatedAt: new Date().toISOString(),

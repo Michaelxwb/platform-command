@@ -16,10 +16,11 @@ export function generateCommandDocs({ commandsDir, outputPath } = {}) {
     lines.push(`- riskLevel: ${command.riskLevel || 'unknown'}`);
     lines.push(`- executable: ${capability.executable}`);
     if (capability.engine) lines.push(`- engine: ${capability.engine}`);
-    if (command.parameters && command.parameters.length) {
+    const paramEntries = Object.entries(command.parameters || {});
+    if (paramEntries.length) {
       lines.push('', '### Parameters', '');
-      for (const param of command.parameters) {
-        lines.push(`- ${param.name}${param.required ? ' (required)' : ''}: ${param.description || param.type || ''}`);
+      for (const [name, spec] of paramEntries) {
+        lines.push(`- ${name}${spec.required ? ' (required)' : ''}: ${spec.description || spec.type || ''}`);
       }
     }
     lines.push('');
