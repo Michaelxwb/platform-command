@@ -47,11 +47,18 @@ rm -rf ga-local && mkdir -p ga-local
 if [[ -n "${GA_LOCAL_PATH}" ]]; then
   [[ -f "${GA_LOCAL_PATH}/agentmain.py" ]] || { echo "FATAL: ${GA_LOCAL_PATH} 不是 GA 仓库（无 agentmain.py）" >&2; exit 1; }
   echo "[build] 拷贝本地 GA fork: ${GA_LOCAL_PATH}（排除 .git/mykey.py/memory/skills/temp/缓存）"
-  rsync -a \
-    --exclude='.git' --exclude='mykey.py' --exclude='__pycache__' --exclude='*.pyc' \
-    --exclude='memory' --exclude='skills' --exclude='temp' --exclude='*.log' \
-    --exclude='.venv' --exclude='venv' --exclude='node_modules' \
-    "${GA_LOCAL_PATH}/" ga-local/
+  # 用 tar 管道拷贝（免装 rsync，几乎所有系统都有 tar），排除 .git/凭证/状态/缓存。
+  # 失败即中止——否则 ga-local 为空会被 Dockerfile 静默回退成 git clone 上游（拿到无补丁的 GA）。
+  if ! tar -C "${GA_LOCAL_PATH}" \
+        --exclude='.git' --exclude='mykey.py' --exclude='__pycache__' --exclude='*.pyc' \
+        --exclude='memory' --exclude='skills' --exclude='temp' --exclude='*.log' \
+        --exclude='.venv' --exclude='venv' --exclude='node_modules' \
+        -cf - . | tar -C ga-local -xf -; then
+    echo "FATAL: 拷贝 GA fork 失败，构建中止（避免静默回退到 git clone 上游、丢失本地补丁）。" >&2
+    exit 1
+  fi
+  # 双保险：确认确实拷进来了
+  [[ -f ga-local/agentmain.py ]] || { echo "FATAL: ga-local/ 未拷入 GA 代码，构建中止。" >&2; exit 1; }
   GA_REF="local-fork"
 fi
 
