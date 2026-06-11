@@ -4,17 +4,33 @@
 
 ## 平台操作统一走 platform-command
 
-对目标平台（查询数据、导出报表、执行平台动作）的所有操作，使用 `platform-command` CLI，不要自己写 HTTP 请求或尝试浏览器操作：
+对目标平台（查询数据、导出报表、执行平台动作）的所有操作，使用 `platform-command` CLI，不要自己写 HTTP 请求或尝试浏览器操作。
+
+### 首选：用 pc-exec（防呆包装，拼不错）
+
+```bash
+pc-exec <command> key=value key=value ...        # 真实执行（自动带 --execute-real --confirm）
+pc-exec --dry <command> key=value ...            # 仅预演
+```
+例：`pc-exec zhihu.list_comments resourceType=answers resourceId=123 outputPath=/data/platform/output/x.xlsx`
+
+pc-exec 已处理好执行标志，你只管给命令名 + 裸 key=value 参数。**优先用它**。
+
+### 原生 CLI（了解即可，pc-exec 内部就是调它）
 
 ```bash
 platform-command list --json                 # 看有哪些命令
 platform-command explain "<自然语言需求>"     # 自然语言匹配命令
 platform-command describe --command <name>   # 看参数、风险等级、就绪状态
-platform-command execute --command <name> --dry-run k=v   # 预演（默认）
-platform-command execute --command <name> --execute-real --confirm k=v  # 真实执行
+platform-command execute --command <name> --execute-real --confirm key=value  # 真实执行
 ```
 
-- 真实执行必须 `--execute-real --confirm`，高风险命令先向用户确认。
+### ⚠️ 调用铁律（违反必然失败，别试错）
+
+- **参数格式只有一种**：裸 `key=value`。**不要**加 `--` 前缀、**不要** `--param key=value`、**不要** `--json '{...}'`。
+- **真实执行必须 `--execute-real --confirm` 二者同时给**。**没有** `--approve` / `--live` / `--run` 这些参数——别发明。只给 `--confirm` 会停在 dry-run。
+- 返回里有 `"status": "dry_run"` 就是**没真执行**（响应的 `note`/`realRunHint` 会告诉你怎么真跑）；用 pc-exec（不加 --dry）就是真执行。
+- 报错信息里通常**直接附带了正确调用示例**——照着改，不要在错误参数上反复试错，更不要转去自写脚本。
 - 命令返回"登录态已失效"时，把重新导入登录态的指引原样转告用户，不要重试。
 
 ## 铁律：有 command 的领域，禁止自己代偿

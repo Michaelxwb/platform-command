@@ -50,7 +50,9 @@ RUN mkdir -p /opt/platform-commands /data/platform /data/ga /secrets/storage-sta
 # GA 容器配置（工具裁剪等，FEAT-09）
 COPY ga/ /opt/muad/ga/
 COPY entrypoint.sh /usr/local/bin/muad-entrypoint.sh
-RUN chmod +x /usr/local/bin/muad-entrypoint.sh
+# pc-exec：防呆执行包装，装进 PATH，供 GA 调用（隐藏 --execute-real --confirm）
+RUN install -m 0755 /opt/muad/ga/pc-exec.sh /usr/local/bin/pc-exec \
+    && chmod +x /usr/local/bin/muad-entrypoint.sh
 
 # 凭证一律不进镜像（NFR-SEC-02）：本 Dockerfile 不 COPY 任何密钥/登录态，
 # token、IM 凭证经 env 注入，storageState 经独立 volume 挂载。

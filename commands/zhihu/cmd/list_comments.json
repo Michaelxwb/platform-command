@@ -1,0 +1,197 @@
+{
+  "name": "zhihu.list_comments",
+  "platform": "zhihu",
+  "description": "获取知乎指定回答/问题/文章的评论列表（comment_v5 接口，需登录态 Cookie）",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-zhihu-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-zhihu-session"
+    },
+    "unauthorizedHint": "需要已登录的知乎会话。服务器模式下先用 import-storage-state.sh 导入 zhihu.com 登录态；本地需在浏览器登录知乎。"
+  },
+  "learnedFrom": {
+    "url": "https://www.zhihu.com/question/2033232585057420750/answer/2042204513088622688",
+    "method": "kimi-webbridge 网络抓包 + 浏览器内 fetch 验证（无需 x-zse-96 签名，带 cookie 即可）"
+  },
+  "parameters": {
+    "resourceType": {
+      "type": "string",
+      "required": false,
+      "default": "answers",
+      "enum": [
+        "answers",
+        "questions",
+        "articles"
+      ],
+      "description": "评论所属资源类型：回答 answers / 问题 questions / 文章 articles"
+    },
+    "resourceId": {
+      "type": "string",
+      "required": true,
+      "description": "资源 ID。回答=URL 中 /answer/<id>；问题=/question/<id>；文章=/p/<id>"
+    },
+    "orderBy": {
+      "type": "string",
+      "required": false,
+      "default": "score",
+      "enum": [
+        "score",
+        "ts"
+      ],
+      "description": "排序：score 热度 / ts 时间"
+    },
+    "limit": {
+      "type": "number",
+      "required": false,
+      "default": 200,
+      "description": "最多抓取条数（自动翻页累计，默认 200）"
+    },
+    "outputPath": {
+      "type": "string",
+      "required": false,
+      "default": "runs/zhihu_comments.xlsx",
+      "description": "导出 Excel 路径"
+    }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "steps": [
+      {
+        "id": "comments",
+        "request": {
+          "method": "GET",
+          "url": "https://www.zhihu.com/api/v4/comment_v5/{{params.resourceType}}/{{params.resourceId}}/root_comment",
+          "query": {
+            "order_by": "{{params.orderBy}}",
+            "limit": "{{params.limit}}",
+            "offset": ""
+          },
+          "headers": {
+            "accept": "application/json, text/plain, */*",
+            "referer": "https://www.zhihu.com/"
+          }
+        },
+        "collect": {
+          "limit": "{{params.limit}}",
+          "maxPages": 20,
+          "itemsPath": "data",
+          "endPath": "paging.is_end",
+          "map": [
+            {
+              "key": "author",
+              "path": "author.name"
+            },
+            {
+              "key": "commentTime",
+              "path": "created_time",
+              "transform": "unixTime"
+            },
+            {
+              "key": "content",
+              "path": "content"
+            },
+            {
+              "key": "likes",
+              "path": "like_count",
+              "transform": "number"
+            },
+            {
+              "key": "commentId",
+              "path": "id"
+            }
+          ],
+          "nextUrlPath": "paging.next"
+        }
+      }
+    ]
+  },
+  "output": {
+    "capability": "export_excel",
+    "path": "{{params.outputPath}}",
+    "title": "知乎评论 {{params.resourceType}}/{{params.resourceId}}",
+    "source": "comments.rows",
+    "columnsTemplate": "./templates/comments.columns.json"
+  },
+  "successCriteria": [
+    "返回 HTTP 200 且 data 为评论数组",
+    "每条含 author/content/likes/commentTime"
+  ],
+  "failureCases": [
+    "未登录或登录态失效（401/403）",
+    "resourceId 错误或资源不存在",
+    "知乎接口结构调整导致字段缺失"
+  ],
+  "naturalLanguage": {
+    "intent": "获取知乎指定回答/问题/文章的评论并导出 Excel。",
+    "aliases": [
+      "知乎评论导出",
+      "知乎评论列表",
+      "zhihu comments"
+    ],
+    "match": {
+      "all": [
+        "评论"
+      ],
+      "any": [
+        "知乎",
+        "zhihu"
+      ],
+      "verbs": [
+        "看",
+        "获取",
+        "导出",
+        "拉",
+        "抓",
+        "excel",
+        "表格"
+      ]
+    },
+    "extract": {
+      "resourceType": {
+        "type": "enum",
+        "pattern": "(回答|问题|文章|专栏|/answer/|/question/|/p/|answer|question|article)",
+        "map": {
+          "回答": "answers",
+          "/answer/": "answers",
+          "answer": "answers",
+          "问题": "questions",
+          "/question/": "questions",
+          "question": "questions",
+          "文章": "articles",
+          "专栏": "articles",
+          "/p/": "articles",
+          "article": "articles"
+        },
+        "default": "answers"
+      },
+      "resourceId": {
+        "type": "regex",
+        "pattern": "/answer/(\\d+)",
+        "fallbackPattern": "(?:/question/|/p/|id[:：=]?\\s*)(\\d+)"
+      },
+      "limit": {
+        "type": "number",
+        "pattern": "(?:前|最多|limit|数量)\\s*[:：=]?\\s*(\\d+)",
+        "default": 20
+      },
+      "outputPath": {
+        "type": "regex",
+        "pattern": "(?:输出|保存|导出到|output)\\s*(?:到|为|=|:|：)?\\s*([^\\s，。；,;]+\\.xlsx)",
+        "default": "runs/zhihu-comments.xlsx"
+      }
+    },
+    "examples": [
+      "导出知乎回答 https://www.zhihu.com/question/2033232585057420750/answer/2042204513088622688 的评论到 excel",
+      "看知乎这个回答的评论 answer/2042204513088622688",
+      "获取知乎文章 /p/12345678 的评论列表，前 30 条"
+    ]
+  },
+  "execution": {
+    "prefer": [
+      "api"
+    ]
+  }
+}

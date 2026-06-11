@@ -74,7 +74,11 @@ export async function executeCommand(commandName, providedParams = {}, options =
       requirements: readiness.requirements,
       readiness: readiness.status,
       session: describeSessionRef(plan.sessionRef || command.sessionRef),
-      plan
+      plan,
+      // 显式告知这是预演、以及如何真正执行——避免调用方（尤其 Agent）误以为已执行、
+      // 或反复试 --confirm/--approve 却始终停在 dry_run。
+      note: '这是 dry-run 预演，未真正执行。真实执行请加 --execute-real --confirm（二者缺一不可）。',
+      realRunHint: `platform-command execute --command ${command.name} --execute-real --confirm ${Object.keys(command.parameters || {}).map((n) => `${n}=...`).join(' ')}`.trim()
     };
     const recorded = recordRun({
       command: command.name,

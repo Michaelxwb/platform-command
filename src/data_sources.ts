@@ -50,8 +50,16 @@ async function collectRows(step, context) {
     const items = rawItems.filter((item) => shouldKeepItem(item, collect));
     rows.push(...items.map((item) => mapItem(item, collect.map || [])));
     const isEnd = Boolean(getPath(body, collect.endPath || 'data.cursor.is_end'));
-    const next = getPath(body, collect.nextPath || 'data.cursor.next');
     if (rows.length >= limit || !rawItems.length || isEnd) break;
+    // HATEOAS 风格：响应给的是"下一页完整 URL"（如知乎 paging.next）。直接用它作为
+    // 下一次请求的 URL，避免从 URL 里抠游标 token。优先于 token / page / offset 翻页。
+    if (collect.nextUrlPath) {
+      const nextUrl = getPath(body, collect.nextUrlPath);
+      if (!nextUrl || nextUrl === context.cursor.nextUrl) break;
+      context.cursor = { ...context.cursor, nextUrl };
+      continue;
+    }
+    const next = getPath(body, collect.nextPath || 'data.cursor.next');
     if (collect.pageParam || collect.offsetParam) {
       const renderedPageSize = Number(renderValue(collect.pageSize || 0, context));
       if (renderedPageSize > 0 && rawItems.length < renderedPageSize) break;
@@ -68,9 +76,12 @@ const DEFAULT_FETCH_TIMEOUT_MS = Number(process.env.PLATFORM_COMMAND_FETCH_TIMEO
 
 async function fetchStepJson(step, context) {
   const request = renderValue(step.request || {}, context);
-  const target = new URL(request.url);
-  const query = await signQueryWithCommandCode(request.query || {}, request.signer, context);
-  for (const [key, value] of Object.entries(query)) target.searchParams.set(key, String(value));
+  // nextUrl（HATEOAS 翻页）已是完整下一页地址，直接用它，跳过模板 url + query 拼装。
+  const target = new URL(context.cursor?.nextUrl || request.url);
+  if (!context.cursor?.nextUrl) {
+    const query = await signQueryWithCommandCode(request.query || {}, request.signer, context);
+    for (const [key, value] of Object.entries(query)) target.searchParams.set(key, String(value));
+  }
   const method = String(request.method || 'GET').toUpperCase();
   const headers = { ...(request.headers || {}) };
 

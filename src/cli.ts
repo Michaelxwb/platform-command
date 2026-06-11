@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck
-import { listCommands } from './command_store.js';
+import { listCommands, loadCommand } from './command_store.js';
 import { executeCommand } from './execute.js';
 import { learnAction } from './learn.js';
 import { formatHumanReadable, runNaturalLanguage } from './nl.js';
@@ -71,6 +71,29 @@ function parseArgs(argv) {
     }
   }
   return out;
+}
+
+// 生成某命令的"正确调用示例"，附在报错后，让人/Agent 一眼看到对的姿势：
+// 参数是裸 key=value（不带 --）；真实执行必须 --execute-real --confirm（无 --approve/--live/--json）。
+function usageHint(commandName, commandsDir) {
+  let example = `platform-command execute --command ${commandName} --execute-real --confirm <参数...>`;
+  try {
+    const { command } = loadCommand(commandName, { commandsDir });
+    const kv = Object.entries(command.parameters || {})
+      .map(([name, spec]) => `${name}=${spec.required ? `<${spec.type || 'string'}>` : (spec.default ?? `<${spec.type || 'string'}>`)}${spec.required ? '' : ''}`);
+    const required = Object.entries(command.parameters || {}).filter(([, s]) => s.required).map(([n]) => n);
+    example = `platform-command execute --command ${commandName} --execute-real --confirm ${kv.join(' ')}`;
+    return [
+      '提示（正确调用方式）：',
+      `  ${example}`,
+      '  · 参数用 key=value（不要加 -- 前缀，不要 --param/--json）',
+      '  · 真实执行必须同时给 --execute-real --confirm；没有 --approve/--live 这类参数',
+      required.length ? `  · 必填参数：${required.join(', ')}` : '',
+      '  · 默认是 dry-run（不真正执行）；不要自写脚本绕过命令'
+    ].filter(Boolean).join('\n');
+  } catch {
+    return `提示：参数用 key=value（不加 --）；真实执行加 --execute-real --confirm。\n  ${example}`;
+  }
 }
 
 function extractExecuteParams(args) {
@@ -231,10 +254,16 @@ async function main() {
   if (cmd === 'execute') {
     if (!args.command) throw new Error('execute requires --command');
     const params = extractExecuteParams(args);
-    if (args.dryRun && args.executeReal) throw new Error('--dry-run and --execute-real cannot be used together');
-    if (args.executeReal && !args.confirm) throw new Error('--execute-real requires --confirm');
-    const result = await executeCommand(args.command, params, { dryRun: !args.executeReal, confirm: !!args.confirm, commandsDir: args.commandsDir });
-    printJson(result);
+    if (args.dryRun && args.executeReal) throw new Error(`--dry-run and --execute-real cannot be used together\n${usageHint(args.command, args.commandsDir)}`);
+    if (args.executeReal && !args.confirm) throw new Error(`--execute-real requires --confirm（真实执行必须二者同时给）\n${usageHint(args.command, args.commandsDir)}`);
+    try {
+      const result = await executeCommand(args.command, params, { dryRun: !args.executeReal, confirm: !!args.confirm, commandsDir: args.commandsDir });
+      printJson(result);
+    } catch (err) {
+      // 参数/格式类错误：附上该命令的正确调用示例，避免反复试错（尤其 Agent）。
+      err.message = `${err.message}\n${usageHint(args.command, args.commandsDir)}`;
+      throw err;
+    }
     return;
   }
   if (cmd === 'learn') {

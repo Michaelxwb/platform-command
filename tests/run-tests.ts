@@ -1047,17 +1047,26 @@ try {
   fs.rmSync(partialDry.runFile, { force: true });
 
   // --- TASK-007：本地模式（零 env）兼容回归 (S-06 / E-05) ---
+  // 把 webbridge 探测指向一个必然连不上的端口，使本用例不依赖"真实 kimi-webbridge
+  // daemon 恰好没在跑"这个外部环境状态（否则本机起着 daemon 时会误判）。
   clearServerEnv();
-  const localDry = await executeCommand('demo.sess_pw', {}, { dryRun: true, commandsDir: sessCmdDir });
-  assert.equal(localDry.readiness.ready, false);
-  assert.ok(localDry.readiness.blockers[0].includes('kimi-webbridge 未运行'));
-  assert.deepEqual(Object.keys(localDry.readiness.adapters).sort(), ['nodeHttp', 'webbridge'], 'local readiness shape must not change');
-  fs.rmSync(localDry.runFile, { force: true });
-  let localExecErr = null;
-  try { await executeCommand('demo.sess_pw', {}, { dryRun: false, confirm: true, commandsDir: sessCmdDir }); } catch (err) { localExecErr = err; }
-  assert.ok(localExecErr, 'local real exec without webbridge must fail');
-  assert.match(localExecErr.message, /kimi-webbridge 未运行/);
-  if (localExecErr.runFile) fs.rmSync(localExecErr.runFile, { force: true });
+  const savedWbPort = process.env.PLATFORM_COMMAND_WEBBRIDGE_PORT;
+  process.env.PLATFORM_COMMAND_WEBBRIDGE_PORT = '0'; // 0 端口探测必然失败
+  try {
+    const localDry = await executeCommand('demo.sess_pw', {}, { dryRun: true, commandsDir: sessCmdDir });
+    assert.equal(localDry.readiness.ready, false);
+    assert.ok(localDry.readiness.blockers[0].includes('kimi-webbridge 未运行'));
+    assert.deepEqual(Object.keys(localDry.readiness.adapters).sort(), ['nodeHttp', 'webbridge'], 'local readiness shape must not change');
+    fs.rmSync(localDry.runFile, { force: true });
+    let localExecErr = null;
+    try { await executeCommand('demo.sess_pw', {}, { dryRun: false, confirm: true, commandsDir: sessCmdDir }); } catch (err) { localExecErr = err; }
+    assert.ok(localExecErr, 'local real exec without webbridge must fail');
+    assert.match(localExecErr.message, /kimi-webbridge 未运行/);
+    if (localExecErr.runFile) fs.rmSync(localExecErr.runFile, { force: true });
+  } finally {
+    if (savedWbPort === undefined) delete process.env.PLATFORM_COMMAND_WEBBRIDGE_PORT;
+    else process.env.PLATFORM_COMMAND_WEBBRIDGE_PORT = savedWbPort;
+  }
 
   // ===== UI 执行引擎（legacy execution.ui，post_comment 形态）=====
   const { extractUiActions, hasUiExecution } = await import('../src/ui_executor.js');

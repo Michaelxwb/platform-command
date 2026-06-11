@@ -36,7 +36,7 @@ if [[ -f /opt/muad/ga/platform_command_sop.md && ! -f /data/ga/memory/platform_c
   cp /opt/muad/ga/platform_command_sop.md /data/ga/memory/platform_command_sop.md
 fi
 INSIGHT=/data/ga/memory/global_mem_insight.txt
-SOP_HINT='[环境约束] 本机为 headless 服务器容器。铁律：平台操作先用 platform-command list/explain 查有无匹配 command——有 command 的领域只能走 platform-command，执行失败/不可执行就停下报告用户，严禁用脚本(requests/playwright/curl)自己代偿；无任何 command 覆盖的领域才可自由发挥。截图/看公开网页可用 headless Chromium，但禁止用它做有 command 覆盖的操作、禁止读 /secrets。浏览器注入/键鼠/屏幕视觉/ADB 无载体不要尝试。详见 ../memory/platform_command_sop.md。'
+SOP_HINT='[环境约束] 本机为 headless 服务器容器。铁律：平台操作先用 platform-command list/explain 查有无匹配 command——有 command 的领域只能走 platform-command，执行失败/不可执行就停下报告用户，严禁用脚本(requests/playwright/curl)自己代偿；无任何 command 覆盖的领域才可自由发挥。执行命令首选 pc-exec（防呆）：pc-exec <command> key=value...（真实执行，自动带 --execute-real --confirm）；参数只用裸 key=value，不要 -- 前缀/--param/--json，没有 --approve/--live，报错会附正确示例照着改、勿试错。截图/看公开网页可用 headless Chromium，但禁止用它做有 command 覆盖的操作、禁止读 /secrets。浏览器注入/键鼠/屏幕视觉/ADB 无载体不要尝试。详见 ../memory/platform_command_sop.md。'
 touch "${INSIGHT}"
 grep -qF 'platform_command_sop.md' "${INSIGHT}" || printf '\n%s\n' "${SOP_HINT}" >> "${INSIGHT}"
 

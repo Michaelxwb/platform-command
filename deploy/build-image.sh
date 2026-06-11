@@ -27,7 +27,17 @@ done
 rm -rf pc-local && mkdir -p pc-local
 if ${PC_LOCAL}; then
   echo "[build] npm pack 本地源码（prepack: build+test）..."
-  (cd .. && npm pack --pack-destination deploy/pc-local)
+  # prepack 会跑 build+test；任一失败 npm pack 非零退出。显式拦截并给出清晰原因，
+  # 而不是让 set -e 静默中止（镜像会停留在旧版本，难以察觉）。
+  if ! (cd .. && npm pack --pack-destination deploy/pc-local); then
+    echo "FATAL: npm pack 失败（通常是 prepack 的 build/test 未通过）。镜像未重建，请先修复测试后重试。" >&2
+    exit 1
+  fi
+  # 双保险：确认确实产出了 tgz，否则后续 Dockerfile 会静默回退装 registry 版本。
+  if ! ls pc-local/*.tgz >/dev/null 2>&1; then
+    echo "FATAL: --pc-local 指定但未生成 pc-local/*.tgz，构建中止（避免误装 registry 版本）。" >&2
+    exit 1
+  fi
   PC_VERSION="local-$(node -p "require('../package.json').version")"
 fi
 
