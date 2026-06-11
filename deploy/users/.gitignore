@@ -1,0 +1,3 @@
+# 用户实例目录含凭证（.env）与渲染后的 compose，全部不进 git
+*
+!.gitignore

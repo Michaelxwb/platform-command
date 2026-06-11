@@ -1,0 +1,18 @@
+validators:
+    - name: "Python 语法检查"
+      trigger: "**/*.py"
+      command: "python3 -m py_compile {files}"
+      timeout: 30000
+      on_fail: "检查语法错误"
+
+    - name: "TypeScript 类型检查"
+      trigger: "**/*.{ts,tsx}"
+      command: "npx tsc --noEmit"
+      timeout: 30000
+      on_fail: "检查类型定义，参见 specs/backend/code-quality-performance.md"
+
+    - name: "Node 单元测试"
+      trigger: "**/*.{ts,js}"
+      command: "npm run build && npm test"
+      timeout: 120000
+      on_fail: "测试失败（tests/run-tests.ts 基于 dist 产物运行，需先 build），检查断言是否需要更新"

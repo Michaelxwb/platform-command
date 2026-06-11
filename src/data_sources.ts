@@ -12,7 +12,7 @@ export async function readDataSource(dataSource, params = {}, options = {}) {
 }
 
 async function readHttpJsonSource(dataSource, params, options) {
-  const context = { params, steps: {}, cursor: {}, warnings: [], commandDir: options.commandDir, viaBrowser: !!options.viaBrowser, session: options.session || {} };
+  const context = { params, steps: {}, cursor: {}, warnings: [], commandDir: options.commandDir, viaBrowser: !!options.viaBrowser, browserAdapter: options.browserAdapter || 'webbridge', session: options.session || {} };
   let rows = [];
   let title = dataSource.title || '';
   const meta = {};
@@ -85,8 +85,10 @@ async function fetchStepJson(step, context) {
   }
 
   if (context.viaBrowser) {
-    const { fetchViaWebbridge } = await import('./webbridge.js');
-    const result = await fetchViaWebbridge(String(target), { method, headers, body, timeoutMs: request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS });
+    const fetchViaSession = context.browserAdapter === 'playwright'
+      ? (await import('./playwright_adapter.js')).fetchViaPlaywright
+      : (await import('./webbridge.js')).fetchViaWebbridge;
+    const result = await fetchViaSession(String(target), { method, headers, body, timeoutMs: request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS });
     const expectedCode = request.expect?.bodyCode;
     if (expectedCode !== undefined && result.code !== expectedCode) throw new Error(`Unexpected body.code ${result.code}: ${result.message || ''}`.trim());
     return result;

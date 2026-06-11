@@ -5,9 +5,11 @@ import { buildWorkflowPlan, normalizeRecipe, renderValue } from './workflow.js';
 import { buildAcceptanceContract, initializeAcceptanceEvidence, evaluateAcceptance } from './acceptance.js';
 import { describeSessionRef } from './session.js';
 import { redactSensitive } from './utils.js';
-import { executeAutoCapability, hasAutoCapability } from './capabilities.js';
+import { commandTargetUrl, executeAutoCapability, hasAutoCapability } from './capabilities.js';
 import { recordRun } from './runs.js';
 import { inferRequirements } from './requirements.js';
+import { resolveServerMode } from './server_mode.js';
+import { hasUiExecution, executeUiActions } from './ui_executor.js';
 
 export function getExecutionCapability(command) {
   if (hasAutoCapability(command)) {
@@ -18,6 +20,26 @@ export function getExecutionCapability(command) {
       reason: 'Command has dataSource plus output.capability and can be executed by the built-in capability engine.'
     };
   }
+  // UI-execution commands (legacy execution.ui or workflow ui steps) run via the
+  // Playwright adapter, but only in server mode with a configured storageState
+  // session. Outside server mode the engine has no logged-in browser, so it
+  // stays a dry-run-only plan (local webbridge has no UI driver here).
+  if (hasUiExecution(command)) {
+    if (resolveServerMode().storageStatePath) {
+      return {
+        executable: true,
+        engine: 'playwright_ui',
+        mode: 'ui',
+        reason: 'UI command executes via the Playwright adapter under the user storageState session.'
+      };
+    }
+    return {
+      executable: false,
+      engine: 'workflow',
+      mode: 'ui_plan',
+      reason: 'UI command requires a server-mode storageState session (PLATFORM_COMMAND_STORAGE_STATE); dry-run planning is supported.'
+    };
+  }
   const recipe = normalizeRecipe(command);
   if (recipe?.steps?.some((step) => step.type === 'api')) {
     return {
@@ -25,14 +47,6 @@ export function getExecutionCapability(command) {
       engine: 'workflow',
       mode: 'api_plan',
       reason: 'Workflow contains API steps but no real workflow execution engine is available yet; dry-run planning is supported.'
-    };
-  }
-  if (recipe?.steps?.some((step) => step.type === 'ui')) {
-    return {
-      executable: false,
-      engine: 'workflow',
-      mode: 'ui_plan',
-      reason: 'Workflow contains UI steps but no real workflow execution engine is available yet; dry-run planning is supported.'
     };
   }
   return {
@@ -80,13 +94,16 @@ export async function executeCommand(commandName, providedParams = {}, options =
   if (capability.executable) {
     const startedAt = new Date().toISOString();
     try {
-      const result = await executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
+      const result = capability.engine === 'playwright_ui'
+        ? await executeUiActions(command, params, { commandDir: commandResourceRoot(file) })
+        : await executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
       const acceptance = evaluateAcceptance(command, { evidence: options.evidence || {}, result });
       const response = { ...result, acceptance };
       const recorded = recordRun({
         command: command.name,
         status: runStatusFromAcceptance(response.status, acceptance),
         dryRun: false,
+        adapter: response.adapter,
         startedAt,
         finishedAt: new Date().toISOString(),
         riskLevel: command.riskLevel,
@@ -110,6 +127,10 @@ export async function executeCommand(commandName, providedParams = {}, options =
       err.runId = recorded.id;
       err.runFile = recorded.file;
       throw err;
+    } finally {
+      // Lazily launched headless browser must not keep one-shot CLI runs alive.
+      const { closePlaywright } = await import('./playwright_adapter.js');
+      await closePlaywright();
     }
   }
   throw new Error(`Not executable: ${capability.reason}`);
@@ -177,23 +198,21 @@ function runStatusFromAcceptance(execStatus, acceptance) {
 
 // Quick adapter availability check for dry-run readiness reporting.
 // Never throws — returns a status object so the caller can surface it to the user.
+// Local mode (no server env) keeps the historical webbridge probe untouched.
 async function checkReadiness(command) {
   const requirements = inferRequirements(command);
   const adapters = { nodeHttp: true, webbridge: false };
   const blockers = [];
 
   if (requirements.session || requirements.ui) {
+    let serverMode = null;
     try {
-      const { checkWebbridge } = await import('./webbridge.js');
-      const wb = await checkWebbridge();
-      adapters.webbridge = wb.running;
-    } catch {
-      adapters.webbridge = false;
+      serverMode = resolveServerMode();
+    } catch (err) {
+      blockers.push(err.message);
     }
-    if (!adapters.webbridge) {
-      const hint = command.runtime?.unauthorizedHint || '';
-      blockers.push(`此命令需要浏览器会话（${command.runtime?.auth?.type || 'browser_session'}），但 kimi-webbridge 未运行。${hint ? hint : '请先启动浏览器桥接。'}`);
-    }
+    if (serverMode?.storageStatePath) await checkPlaywrightReadiness(command, adapters, blockers, serverMode);
+    else if (serverMode) await checkWebbridgeReadiness(command, adapters, blockers);
   }
 
   return {
@@ -204,4 +223,38 @@ async function checkReadiness(command) {
       blockers
     }
   };
+}
+
+async function checkWebbridgeReadiness(command, adapters, blockers) {
+  try {
+    const { checkWebbridge } = await import('./webbridge.js');
+    const wb = await checkWebbridge();
+    adapters.webbridge = wb.running;
+  } catch {
+    adapters.webbridge = false;
+  }
+  if (!adapters.webbridge) {
+    const hint = command.runtime?.unauthorizedHint || '';
+    blockers.push(`此命令需要浏览器会话（${command.runtime?.auth?.type || 'browser_session'}），但 kimi-webbridge 未运行。${hint ? hint : '请先启动浏览器桥接。'}`);
+  }
+}
+
+async function checkPlaywrightReadiness(command, adapters, blockers, serverMode) {
+  adapters.playwright = false;
+  try {
+    const { readStorageState } = await import('./playwright_adapter.js');
+    readStorageState(serverMode.storageStatePath);
+    adapters.playwright = true;
+  } catch (err) {
+    blockers.push(err.message);
+    return;
+  }
+  const targetUrl = commandTargetUrl(command);
+  if (!targetUrl) return;
+  const { getSessionState } = await import('./session_state.js');
+  const { STORAGE_STATE_IMPORT_GUIDE } = await import('./playwright_adapter.js');
+  const state = getSessionState(new URL(targetUrl).hostname);
+  if (state.invalid) {
+    blockers.push(`登录态已失效（${state.reason || '401/403'}，记录于 ${state.at}）。${STORAGE_STATE_IMPORT_GUIDE}`);
+  }
 }

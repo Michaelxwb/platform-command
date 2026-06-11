@@ -5,36 +5,44 @@ import { renderValue } from './workflow.js';
 import { exportRows, normalizeCapability } from './exporters.js';
 import { readDataSource } from './data_sources.js';
 import { inferRequirements } from './requirements.js';
+import { resolveOutputPath, resolveServerMode } from './server_mode.js';
 
 // Select the fetch adapter required by the command and prepare its context.
-// Returns { viaBrowser, session } — the caller passes these into readDataSource.
+// Returns { viaBrowser, session, adapter } — the caller passes these into readDataSource.
 //
 // Decision rule:
 //   runtime.auth.type === 'browser_session_cookie'  → primary HTTP path needs
-//     httpOnly cookies from a live browser; must use webbridge.
+//     httpOnly cookies from a live session:
+//       server mode (PLATFORM_COMMAND_STORAGE_STATE set) → headless Playwright;
+//       otherwise → webbridge against the user's real browser (local path, unchanged).
 //   everything else (plain API, bearer token, UI-only fallback)  → Node fetch
 //     is sufficient for the dataSource; UI steps are handled separately.
 async function resolveAdapter(command) {
   const authType = command.runtime?.auth?.type || '';
   const needsBrowserFetch = authType === 'browser_session_cookie';
+  if (!needsBrowserFetch) return { viaBrowser: false, session: {}, adapter: 'node_http' };
 
-  if (needsBrowserFetch) {
-    const { ensureBrowserSession, resolveSessionFromBrowser } = await import('./webbridge.js');
-    const targetUrl = command.learnedFrom?.url || extractTargetUrl(command);
-    if (!targetUrl) {
-      throw new Error(
-        `此命令需要已登录的浏览器会话（sessionRef: ${command.sessionRef || '?'}），` +
-        `但未找到目标 URL（learnedFrom.url 未设置）。` +
-        (command.runtime?.unauthorizedHint ? `\n提示: ${command.runtime.unauthorizedHint}` : '')
-      );
-    }
-    await ensureBrowserSession(targetUrl, { unauthorizedHint: command.runtime?.unauthorizedHint });
-    const session = await resolveSessionFromBrowser();
-    return { viaBrowser: true, session };
+  const targetUrl = commandTargetUrl(command);
+  if (!targetUrl) {
+    throw new Error(
+      `此命令需要已登录的浏览器会话（sessionRef: ${command.sessionRef || '?'}），` +
+      `但未找到目标 URL（learnedFrom.url 未设置）。` +
+      (command.runtime?.unauthorizedHint ? `\n提示: ${command.runtime.unauthorizedHint}` : '')
+    );
   }
+  if (resolveServerMode().storageStatePath) {
+    const { ensurePlaywrightSession, resolveSessionFromPlaywright } = await import('./playwright_adapter.js');
+    await ensurePlaywrightSession(targetUrl, { unauthorizedHint: command.runtime?.unauthorizedHint });
+    return { viaBrowser: true, session: await resolveSessionFromPlaywright(targetUrl), adapter: 'playwright' };
+  }
+  const { ensureBrowserSession, resolveSessionFromBrowser } = await import('./webbridge.js');
+  await ensureBrowserSession(targetUrl, { unauthorizedHint: command.runtime?.unauthorizedHint });
+  return { viaBrowser: true, session: await resolveSessionFromBrowser(), adapter: 'webbridge' };
+}
 
-  // Plain HTTP or token-based auth — Node fetch is sufficient.
-  return { viaBrowser: false, session: {} };
+// Target URL used for session warm-up and per-host session health checks.
+export function commandTargetUrl(command) {
+  return command.learnedFrom?.url || extractTargetUrl(command) || null;
 }
 
 function extractTargetUrl(command) {
@@ -61,11 +69,11 @@ export const JSON_CAPABILITIES = new Set(['return_json', 'save_json']);
 export async function executeAutoCapability(command, params, options = {}) {
   if (!hasAutoCapability(command)) return null;
 
-  const { viaBrowser, session } = await resolveAdapter(command);
+  const { viaBrowser, session, adapter } = await resolveAdapter(command);
 
   const context = { params, steps: {}, warnings: [], session };
   const dataSource = renderValue(command.dataSource, context);
-  const data = await readDataSource(dataSource, params, { commandDir: options.commandDir, viaBrowser, session });
+  const data = await readDataSource(dataSource, params, { commandDir: options.commandDir, viaBrowser, session, browserAdapter: adapter });
   context.steps[dataSource.id || 'data'] = { rows: data.rows, title: data.title };
 
   const output = renderValue(command.output, context);
@@ -79,7 +87,7 @@ export async function executeAutoCapability(command, params, options = {}) {
     let outputPath = null;
     if (requestedCapability === 'save_json') {
       if (!output.path) throw new Error('output.path is required for save_json');
-      outputPath = path.resolve(output.path);
+      outputPath = resolveOutputPath(output.path);
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       fs.writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`);
     }
@@ -87,6 +95,7 @@ export async function executeAutoCapability(command, params, options = {}) {
       status: 'executed',
       command: command.name,
       capability: requestedCapability,
+      adapter,
       outputPath,
       rows: payload.rows,
       meta: payload.meta,
@@ -111,6 +120,7 @@ export async function executeAutoCapability(command, params, options = {}) {
     status: 'executed',
     command: command.name,
     capability: result.capability,
+    adapter,
     outputPath: result.outputPath,
     rows: result.rows,
     columns: result.columns,

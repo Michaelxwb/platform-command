@@ -70,6 +70,12 @@
       "ui": {
         "actions": [
           {
+            "type": "scroll",
+            "target": "bili-comments",
+            "waitMs": 3000,
+            "description": "滚动到评论区触发懒加载渲染编辑器"
+          },
+          {
             "type": "waitFor",
             "target": "#commentapp, bili-comments",
             "timeoutMs": 15000
@@ -92,7 +98,7 @@
         "actions": [
           {
             "type": "fill",
-            "selector": "bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> bili-comment-rich-textarea >>> .brt-editor[contenteditable=\"true\"]",
+            "selector": ".brt-editor[contenteditable=\"true\"]",
             "value": "{{commentText}}"
           },
           {
@@ -115,17 +121,20 @@
             "type": "assert",
             "target": "bili-comments",
             "contains": "发布",
-            "description": "确认评论组件仍可交互。"
+            "description": "确认评论组件仍可交互。",
+            "when": "{{autoPublish}}"
           },
           {
             "type": "assert",
             "target": "browser-network-listener:/x/v2/reply/add",
-            "description": "执行器应在点击前开始监听 fetch/XHR 中的 /x/v2/reply/add 响应；若不支持网络监听，必须在发布后执行 verify_comment_result。"
+            "description": "执行器应在点击前开始监听 fetch/XHR 中的 /x/v2/reply/add 响应；若不支持网络监听，必须在发布后执行 verify_comment_result。",
+            "when": "{{autoPublish}}"
           },
           {
             "type": "click",
-            "selector": "bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> #submit, bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> #pub, bili-comments >>> bili-comments-header-renderer >>> bili-comment-box >>> button:has-text(\"发布\")",
-            "description": "使用真实用户点击或等价浏览器适配器事件链触发发布。"
+            "selector": "button:has-text(\"发布\")",
+            "description": "使用真实用户点击或等价浏览器适配器事件链触发发布。",
+            "when": "{{autoPublish}}"
           }
         ]
       },

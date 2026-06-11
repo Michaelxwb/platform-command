@@ -73,6 +73,15 @@ MCP server 当前提供 10 个 tools：
 
 > 如果你的 Agent 运行环境找不到全局命令，也可以把 `command` 改成 `npx`，`args` 改成 `["@jahanxu/platform-command", "mcp"]`。业务 commands 可以通过 `PLATFORM_COMMANDS_DIR` 注入。
 
+## 服务器多用户部署
+
+把一套环境部署到服务器供多人使用、每人操作互相独立（每用户一个容器，绑定各自的
+IM 渠道与平台登录态）：见 **[deploy/ADMIN_GUIDE.md](deploy/ADMIN_GUIDE.md)** —— 涵盖
+镜像构建、用户开通、各 IM 渠道（TUI / 企业微信 / 个人微信）配置、平台登录态导入与运维。
+
+> 本地单用户用法（上面的 MCP / CLI）不受影响：服务器模式由显式环境变量启用，
+> 未设置时行为与现版本完全一致。
+
 ## 外部 commands 扩展
 
 默认会加载仓库内置目录：

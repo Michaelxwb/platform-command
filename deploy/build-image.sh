@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# CLI-03：构建基础镜像，tag 绑定 platform-command 与 GA 双版本（FEAT-01）。
+# 用法: build-image.sh [--pc-version <npm版本>] [--ga-ref <git ref>] [--tag <自定义tag>]
+#                       [--pc-local] [--ga-local <本地 GA fork 路径>]
+# --ga-local：用本地 GA fork 代码（验证未合并的修复），不走 git clone 上游。
+set -euo pipefail
+cd "$(dirname "$0")"
+
+PC_VERSION="latest"
+GA_REF="main"
+CUSTOM_TAG=""
+PC_LOCAL=false
+GA_LOCAL_PATH=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --pc-version) PC_VERSION="$2"; shift 2 ;;
+    --ga-ref)     GA_REF="$2"; shift 2 ;;
+    --tag)        CUSTOM_TAG="$2"; shift 2 ;;
+    --pc-local)   PC_LOCAL=true; shift ;;
+    --ga-local)   GA_LOCAL_PATH="$2"; shift 2 ;;
+    *) echo "未知参数: $1" >&2; exit 1 ;;
+  esac
+done
+
+# --pc-local：npm pack 本仓库源码（触发 prepack 的 build+test 闸门），
+# 用于验证未发版代码；正式镜像走 --pc-version 装 registry 版本。
+rm -rf pc-local && mkdir -p pc-local
+if ${PC_LOCAL}; then
+  echo "[build] npm pack 本地源码（prepack: build+test）..."
+  (cd .. && npm pack --pack-destination deploy/pc-local)
+  PC_VERSION="local-$(node -p "require('../package.json').version")"
+fi
+
+# --ga-local：把本地 GA fork 拷入 ga-local/，排除 .git/凭证/per-user 状态/缓存。
+# 镜像优先用 ga-local（见 Dockerfile）；否则该目录为空，回退 git clone 上游。
+rm -rf ga-local && mkdir -p ga-local
+if [[ -n "${GA_LOCAL_PATH}" ]]; then
+  [[ -f "${GA_LOCAL_PATH}/agentmain.py" ]] || { echo "FATAL: ${GA_LOCAL_PATH} 不是 GA 仓库（无 agentmain.py）" >&2; exit 1; }
+  echo "[build] 拷贝本地 GA fork: ${GA_LOCAL_PATH}（排除 .git/mykey.py/memory/skills/temp/缓存）"
+  rsync -a \
+    --exclude='.git' --exclude='mykey.py' --exclude='__pycache__' --exclude='*.pyc' \
+    --exclude='memory' --exclude='skills' --exclude='temp' --exclude='*.log' \
+    --exclude='.venv' --exclude='venv' --exclude='node_modules' \
+    "${GA_LOCAL_PATH}/" ga-local/
+  GA_REF="local-fork"
+fi
+
+# 版本对齐校验（NFR-COMPAT-01）：FROM 镜像版本 == npm playwright 版本
+BASE_PW_VERSION=$(grep -oE 'playwright:v[0-9]+\.[0-9]+\.[0-9]+' Dockerfile | head -1 | sed 's/playwright:v//')
+NPM_PW_VERSION=$(grep -oE 'PLAYWRIGHT_NPM_VERSION=[0-9]+\.[0-9]+\.[0-9]+' Dockerfile | head -1 | cut -d= -f2)
+if [[ "${BASE_PW_VERSION}" != "${NPM_PW_VERSION}" ]]; then
+  echo "FATAL: Playwright 版本不对齐：基础镜像 v${BASE_PW_VERSION} != npm ${NPM_PW_VERSION}" >&2
+  exit 1
+fi
+echo "[build] Playwright 版本对齐 ✓ (${BASE_PW_VERSION})"
+
+TAG="${CUSTOM_TAG:-muad:pc${PC_VERSION}-ga$(echo "${GA_REF}" | tr '/' '-')}"
+docker build \
+  --build-arg "PLATFORM_COMMAND_VERSION=${PC_VERSION}" \
+  --build-arg "GA_REF=${GA_REF}" \
+  -t "${TAG}" .
+
+# 镜像内不得含凭证（NFR-SEC-02）
+echo "[build] 凭证扫描..."
+if docker run --rm --entrypoint sh "${TAG}" -c 'test -f /opt/generic-agent/mykey.py'; then
+  echo "FATAL: 镜像中发现 mykey.py，凭证不得进镜像" >&2
+  exit 1
+fi
+echo "[build] 完成: ${TAG}"

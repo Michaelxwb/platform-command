@@ -2,11 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { redactSensitive } from './utils.js';
+import { resolveDataBaseDir, serverModeMeta } from './server_mode.js';
 
 // Run records belong to the consuming project, not the package install dir
-// (which may be read-only under a global install). Resolve under cwd at call time.
+// (which may be read-only under a global install). Local mode resolves under
+// cwd at call time; server mode pins to PLATFORM_COMMAND_DATA_DIR.
 function runsDir() {
-  return path.join(process.cwd(), '.platform-command', 'runs');
+  return path.join(resolveDataBaseDir(), '.platform-command', 'runs');
 }
 
 export function recordRun(run) {
@@ -14,7 +16,8 @@ export function recordRun(run) {
   fs.mkdirSync(dir, { recursive: true });
   const id = run.id || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const file = path.join(dir, `${id}.json`);
-  const payload = redactSensitive({ id, createdAt: new Date().toISOString(), ...run });
+  // serverModeMeta() adds userId only in server mode; local records keep the old shape.
+  const payload = redactSensitive({ id, createdAt: new Date().toISOString(), ...serverModeMeta(), ...run });
   fs.writeFileSync(file, JSON.stringify(payload, null, 2));
   return { ...payload, file };
 }

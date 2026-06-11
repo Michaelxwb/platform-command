@@ -1,0 +1,36 @@
+# 每用户 compose 模板（FEAT-02）。provision-user.sh 用 envsubst 渲染：
+#   PC_USER / MUAD_IMAGE / COMMANDS_DIR 由脚本注入；用户级凭证在 .env。
+services:
+  muad-${PC_USER}:
+    image: ${MUAD_IMAGE}
+    container_name: muad-${PC_USER}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PLATFORM_COMMAND_USER_ID: ${PC_USER}
+      PLATFORM_COMMAND_STORAGE_STATE: /secrets/storage-state/default.storageState.json
+      PLATFORM_COMMAND_OUTPUT_DIR: /data/platform/output
+      PLATFORM_COMMAND_DATA_DIR: /data/platform
+      PLATFORM_COMMANDS_DIR: /opt/platform-commands
+    volumes:
+      # 命令库只读（FEAT-08）：含 signer 代码在内仅管理员可变更
+      - ${COMMANDS_DIR}:/opt/platform-commands:ro
+      # GA 凭证配置（LLM key + IM 渠道凭证 + allowed_users 身份绑定，管理员维护）
+      - ./mykey.py:/opt/generic-agent/mykey.py:ro
+      # 三类用户数据：登录态（高敏感、可单独销毁）/平台数据/GA 记忆
+      - muad-${PC_USER}-secrets:/secrets/storage-state
+      - muad-${PC_USER}-data:/data/platform
+      - muad-${PC_USER}-ga:/data/ga
+    # 容器按不可信沙箱配置（NFR-SEC-03）
+    mem_limit: 2g
+    cpus: 1.5
+    healthcheck:
+      test: ["CMD", "platform-command", "list", "--json"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  muad-${PC_USER}-secrets:
+  muad-${PC_USER}-data:
+  muad-${PC_USER}-ga:

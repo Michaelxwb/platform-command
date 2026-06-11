@@ -422,6 +422,16 @@ assert.doesNotMatch(serialized, /Cookie\"\s*:\s*\"(?!\[REDACTED\])/i);
 assert.doesNotMatch(serialized, /password\"\s*:\s*\"[^\[]+/i);
 assert.doesNotMatch(serialized, /secret\"\s*:\s*\"[^\[]+/i);
 
+// runtime.* 是延迟命名空间：plan 阶段保留占位、不报 UNRESOLVED，failOnUnresolvedTemplates 不应因它抛错
+{
+  const runtimeWarnings = [];
+  const rt = renderValue('视频 aid={{runtime.open_video.aid}}', { params: {}, steps: {}, warnings: runtimeWarnings });
+  assert.equal(rt, '视频 aid={{runtime.open_video.aid}}', 'runtime.* 占位符应保留');
+  assert.equal(runtimeWarnings.length, 0, 'runtime.* 不应产生 UNRESOLVED_TEMPLATE 警告');
+  // 已提供 runtime 上下文时正常解析
+  assert.equal(renderValue('{{runtime.open_video.aid}}', { params: {}, steps: {}, runtime: { open_video: { aid: 123 } } }), 123);
+}
+
 const unresolvedCommand = structuredClone(workflowVerify.command);
 unresolvedCommand.execution.workflow.steps[0].request.query.missing = '{{notDeclared}}';
 const unresolvedPlan = buildWorkflowPlan(unresolvedCommand, { keyword: 'abc', page: 1, limit: 5 });
@@ -479,7 +489,7 @@ try {
 const apiWorkflowCommand = { name: 'demo.api_workflow', execution: { workflow: { steps: [{ type: 'api', request: { url: 'https://example.test' } }] } } };
 assert.deepEqual(getExecutionCapability(apiWorkflowCommand), { executable: false, engine: 'workflow', mode: 'api_plan', reason: 'Workflow contains API steps but no real workflow execution engine is available yet; dry-run planning is supported.' });
 const uiWorkflowCommand = { name: 'demo.ui_workflow', execution: { workflow: { steps: [{ type: 'ui', action: 'click', selector: '#go' }] } } };
-assert.deepEqual(getExecutionCapability(uiWorkflowCommand), { executable: false, engine: 'workflow', mode: 'ui_plan', reason: 'Workflow contains UI steps but no real workflow execution engine is available yet; dry-run planning is supported.' });
+assert.deepEqual(getExecutionCapability(uiWorkflowCommand), { executable: false, engine: 'workflow', mode: 'ui_plan', reason: 'UI command requires a server-mode storageState session (PLATFORM_COMMAND_STORAGE_STATE); dry-run planning is supported.' });
 const blockedExecutionCommand = { name: 'demo.workflow_only', execution: { workflow: { steps: [{ type: 'manual', manual: 'Inspect manually' }] } } };
 assert.deepEqual(getExecutionCapability(blockedExecutionCommand), { executable: false, engine: null, mode: 'none', reason: 'No real execution engine is available for this command shape; use dry-run workflow plans or add dataSource plus output.capability.' });
 const blockedPlanDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-blocked-plan-'));
@@ -845,3 +855,317 @@ assert.ok(mockCrontab.includes('echo keep'));
 const docsJson = JSON.parse(execFileSync('node', [CLI_PATH, 'docs', '--json'], { encoding: 'utf8' }));
 assert.ok(docsJson.commands > 0);
 assert.ok(docsJson.markdown.includes('demo.search_example'));
+
+// ============ 服务器模式（多用户部署）：env 矩阵 / 适配器选择 / 沙箱 / 会话健康 / 本地兼容 ============
+const { resolveServerMode, resolveOutputPath, serverModeMeta } = await import('../src/server_mode.js');
+const { markSessionInvalid, clearSessionInvalid, getSessionState } = await import('../src/session_state.js');
+const playwrightAdapter = await import('../src/playwright_adapter.js');
+const { recordRun } = await import('../src/runs.js');
+const os = await import('node:os');
+
+const SERVER_ENV_KEYS = ['PLATFORM_COMMAND_USER_ID', 'PLATFORM_COMMAND_STORAGE_STATE', 'PLATFORM_COMMAND_OUTPUT_DIR', 'PLATFORM_COMMAND_DATA_DIR'];
+const savedServerEnv = {};
+for (const key of SERVER_ENV_KEYS) { savedServerEnv[key] = process.env[key]; delete process.env[key]; }
+const clearServerEnv = () => { for (const key of SERVER_ENV_KEYS) delete process.env[key]; };
+let sandboxRoot = null;
+let outsideDir = null;
+let sessStateFile = null;
+let sessCmdDir = null;
+
+try {
+  // --- TASK-001：本地模式（零 env）零行为变化 (S-06 基线) ---
+  assert.equal(resolveServerMode().enabled, false);
+  assert.deepEqual(serverModeMeta(), {});
+  assert.equal(resolveOutputPath('runs/x.xlsx'), path.resolve('runs/x.xlsx'));
+
+  // --- TASK-001：完整/部分/非法配置矩阵 (B-03) ---
+  process.env.PLATFORM_COMMAND_USER_ID = 'alice';
+  assert.equal(resolveServerMode().enabled, true);
+  assert.equal(resolveServerMode().userId, 'alice');
+  assert.deepEqual(serverModeMeta(), { userId: 'alice' });
+  clearServerEnv();
+  process.env.PLATFORM_COMMAND_STORAGE_STATE = '/tmp/state.json';
+  assert.throws(() => resolveServerMode(), /服务器模式配置不完整/);
+  assert.deepEqual(serverModeMeta(), {});
+  clearServerEnv();
+  process.env.PLATFORM_COMMAND_OUTPUT_DIR = '/tmp/out';
+  assert.throws(() => resolveServerMode(), /服务器模式配置不完整/);
+  clearServerEnv();
+  process.env.PLATFORM_COMMAND_USER_ID = 'bad user!';
+  assert.throws(() => resolveServerMode(), /格式无效/);
+  clearServerEnv();
+
+  // --- TASK-005：输出沙箱（相对/绝对/越界/符号链接） (E-03) ---
+  sandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-sandbox-'));
+  outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-outside-'));
+  const realSandbox = fs.realpathSync(sandboxRoot);
+  process.env.PLATFORM_COMMAND_USER_ID = 'alice';
+  process.env.PLATFORM_COMMAND_OUTPUT_DIR = sandboxRoot;
+  assert.equal(resolveOutputPath('a/b.xlsx'), path.join(realSandbox, 'a/b.xlsx'));
+  assert.equal(resolveOutputPath(path.join(realSandbox, 'inner.json')), path.join(realSandbox, 'inner.json'));
+  assert.throws(() => resolveOutputPath('../escape.xlsx'), /输出路径越界/);
+  assert.throws(() => resolveOutputPath('/etc/pc-test-escape'), /输出路径越界/);
+  fs.symlinkSync(outsideDir, path.join(realSandbox, 'link'));
+  assert.throws(() => resolveOutputPath('link/file.xlsx'), /输出路径越界/);
+  const sandboxExport = exportRows({ capability: 'export_excel', outputPath: 'ok.xlsx', columns: [{ key: 'a', title: 'A' }], rows: [{ a: 1 }], title: 't' });
+  assert.ok(sandboxExport.outputPath.startsWith(realSandbox + path.sep));
+  assert.ok(fs.existsSync(sandboxExport.outputPath));
+  assert.throws(() => exportRows({ capability: 'export_excel', outputPath: '../leak.xlsx', columns: [], rows: [] }), /输出路径越界/);
+  delete process.env.PLATFORM_COMMAND_OUTPUT_DIR;
+
+  // --- TASK-004：run 记录归属（服务器模式带 userId，本地无新字段） (S-05) ---
+  const serverRun = recordRun({ command: 'demo.meta', status: 'dry_run', dryRun: true });
+  assert.equal(serverRun.userId, 'alice');
+  fs.rmSync(serverRun.file, { force: true });
+  clearServerEnv();
+  const localRun = recordRun({ command: 'demo.meta', status: 'dry_run', dryRun: true });
+  assert.equal('userId' in localRun, false);
+  assert.equal('adapter' in localRun, false);
+  assert.ok(localRun.file.startsWith(path.join(process.cwd(), '.platform-command')), 'local run records stay under cwd');
+  fs.rmSync(localRun.file, { force: true });
+
+  // --- DATA_DIR：服务器模式下 run 记录与会话标记锚定数据目录，不随子进程 cwd 漂移 ---
+  const dataBase = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-data-'));
+  try {
+    process.env.PLATFORM_COMMAND_USER_ID = 'alice';
+    process.env.PLATFORM_COMMAND_DATA_DIR = dataBase;
+    const pinnedRun = recordRun({ command: 'demo.meta', status: 'dry_run', dryRun: true });
+    assert.ok(pinnedRun.file.startsWith(path.resolve(dataBase) + path.sep), 'server-mode run records pinned to DATA_DIR');
+    markSessionInvalid('pin.test', 'HTTP 401');
+    assert.ok(fs.existsSync(path.join(path.resolve(dataBase), '.platform-command', 'sessions', 'pin.test.json')), 'session markers pinned to DATA_DIR');
+    assert.equal(getSessionState('pin.test').invalid, true);
+    clearSessionInvalid('pin.test');
+    // DATA_DIR 也纳入 B-03 部分配置校验
+    delete process.env.PLATFORM_COMMAND_USER_ID;
+    assert.throws(() => resolveServerMode(), /服务器模式配置不完整/);
+  } finally {
+    clearServerEnv();
+    fs.rmSync(dataBase, { recursive: true, force: true });
+  }
+
+  // --- TASK-006：会话失效标记生命周期（原子写 + 读取 + 清除） ---
+  markSessionInvalid('API.Test', 'HTTP 401 for https://api.test/x');
+  const invalidState = getSessionState('api.test');
+  assert.equal(invalidState.invalid, true);
+  assert.match(invalidState.reason, /401/);
+  assert.ok(invalidState.at);
+  clearSessionInvalid('api.test');
+  assert.equal(getSessionState('api.test').invalid, false);
+
+  // --- TASK-002：storageState 校验（缺失/损坏/缺字段 → 含导入指引） (E-01) ---
+  assert.throws(() => playwrightAdapter.readStorageState('/nonexistent/state.json'), /storageState 文件不存在/);
+  sessStateFile = path.join(os.tmpdir(), `pc-state-${process.pid}.json`);
+  fs.writeFileSync(sessStateFile, 'not json');
+  assert.throws(() => playwrightAdapter.readStorageState(sessStateFile), /JSON 解析失败/);
+  fs.writeFileSync(sessStateFile, JSON.stringify({ origins: [] }));
+  assert.throws(() => playwrightAdapter.readStorageState(sessStateFile), /缺少 cookies 数组/);
+  try { playwrightAdapter.readStorageState('/nonexistent/state.json'); } catch (err) { assert.match(err.message, /import-storage-state/); }
+
+  // --- TASK-002：fake playwright 下的 fetch / 401 标记 / 恢复清除 ---
+  fs.writeFileSync(sessStateFile, JSON.stringify({ cookies: [{ name: 'csrf_token', value: 'tok-1', domain: 'api.test', path: '/' }], origins: [] }));
+  process.env.PLATFORM_COMMAND_USER_ID = 'alice';
+  process.env.PLATFORM_COMMAND_STORAGE_STATE = sessStateFile;
+  const fetchQueue = [];
+  const fakeContext = {
+    request: {
+      fetch: async () => {
+        const next = fetchQueue.shift() || { status: 200, body: {} };
+        return { status: () => next.status, ok: () => next.status < 400, json: async () => next.body, text: async () => JSON.stringify(next.body) };
+      }
+    },
+    cookies: async () => [{ name: 'csrf_token', value: 'tok-1' }],
+    pages: () => [],
+    newPage: async () => ({ url: () => 'about:blank', goto: async () => {} }),
+    close: async () => {}
+  };
+  const fakeBrowser = { isConnected: () => true, newContext: async () => fakeContext, close: async () => {} };
+  playwrightAdapter.__setPlaywrightLoader(async () => ({ chromium: { launch: async () => fakeBrowser } }));
+
+  fetchQueue.push({ status: 200, body: { code: 0 } });
+  assert.equal((await playwrightAdapter.fetchViaPlaywright('https://api.test/v1/list')).code, 0);
+  fetchQueue.push({ status: 401, body: {} });
+  await assert.rejects(
+    () => playwrightAdapter.fetchViaPlaywright('https://api.test/v1/list'),
+    (err) => err.authRequired === true && /登录态已失效/.test(err.message) && /import-storage-state/.test(err.message)
+  );
+  assert.equal(getSessionState('api.test').invalid, true);
+  fetchQueue.push({ status: 200, body: { code: 0 } });
+  await playwrightAdapter.fetchViaPlaywright('https://api.test/v1/list');
+  assert.equal(getSessionState('api.test').invalid, false);
+  await playwrightAdapter.ensurePlaywrightSession('https://api.test/app#home');
+  assert.equal((await playwrightAdapter.resolveSessionFromPlaywright('https://api.test/app')).csrfToken, 'tok-1');
+  await playwrightAdapter.closePlaywright();
+
+  // --- TASK-002：未安装 playwright → 明确报错，模块本身可加载 (RULE-02) ---
+  playwrightAdapter.__setPlaywrightLoader(async () => { const e = new Error("Cannot find package 'playwright'"); e.code = 'ERR_MODULE_NOT_FOUND'; throw e; });
+  await assert.rejects(() => playwrightAdapter.fetchViaPlaywright('https://api.test/x'), /未安装可选依赖 playwright/);
+
+  // --- TASK-003：适配器选择矩阵（browser_session_cookie 命令夹具） ---
+  sessCmdDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-sess-cmd-'));
+  fs.writeFileSync(path.join(sessCmdDir, 'demo.sess_pw.json'), JSON.stringify({
+    name: 'demo.sess_pw', platform: 'demo', description: 'session command fixture', riskLevel: 'low',
+    sessionRef: 'prelogged-test',
+    runtime: { auth: { type: 'browser_session_cookie' } },
+    learnedFrom: { url: 'https://api.test/app' },
+    parameters: {},
+    dataSource: { type: 'http_json', steps: [{ id: 'list', request: { method: 'GET', url: 'https://api.test/v1/items' }, collect: { itemsPath: 'data.items', limit: 10, map: [{ key: 'name', path: 'name' }] } }] },
+    output: { capability: 'return_json', title: 'items' }
+  }, null, 2));
+
+  // 服务器模式 + fake playwright → 真实执行走 playwright，run 记录带 userId/adapter (S-03/S-05)
+  playwrightAdapter.__setPlaywrightLoader(async () => ({ chromium: { launch: async () => fakeBrowser } }));
+  fetchQueue.push({ status: 200, body: { data: { items: [{ name: 'x' }], cursor: { is_end: true } } } });
+  const pwExec = await executeCommand('demo.sess_pw', {}, { dryRun: false, confirm: true, commandsDir: sessCmdDir });
+  assert.equal(pwExec.status, 'executed');
+  assert.equal(pwExec.adapter, 'playwright');
+  assert.deepEqual(pwExec.rows, [{ name: 'x' }]);
+  const pwRunRecord = JSON.parse(fs.readFileSync(pwExec.runFile, 'utf8'));
+  assert.equal(pwRunRecord.userId, 'alice');
+  assert.equal(pwRunRecord.adapter, 'playwright');
+  fs.rmSync(pwExec.runFile, { force: true });
+
+  // 服务器模式 dry-run readiness：playwright 可用 → ready
+  const pwDry = await executeCommand('demo.sess_pw', {}, { dryRun: true, commandsDir: sessCmdDir });
+  assert.equal(pwDry.readiness.ready, true);
+  assert.equal(pwDry.readiness.adapters.playwright, true);
+  fs.rmSync(pwDry.runFile, { force: true });
+
+  // session 失效标记 → dry-run blocker (E-02)
+  markSessionInvalid('api.test', 'HTTP 401');
+  const invalidDry = await executeCommand('demo.sess_pw', {}, { dryRun: true, commandsDir: sessCmdDir });
+  assert.equal(invalidDry.readiness.ready, false);
+  assert.ok(invalidDry.readiness.blockers.some((item) => item.includes('登录态已失效')));
+  clearSessionInvalid('api.test');
+  fs.rmSync(invalidDry.runFile, { force: true });
+
+  // B-03：部分配置 → dry-run blocker，run 记录不带 userId
+  delete process.env.PLATFORM_COMMAND_USER_ID;
+  const partialDry = await executeCommand('demo.sess_pw', {}, { dryRun: true, commandsDir: sessCmdDir });
+  assert.equal(partialDry.readiness.ready, false);
+  assert.ok(partialDry.readiness.blockers.some((item) => item.includes('服务器模式配置不完整')));
+  assert.equal('userId' in JSON.parse(fs.readFileSync(partialDry.runFile, 'utf8')), false);
+  fs.rmSync(partialDry.runFile, { force: true });
+
+  // --- TASK-007：本地模式（零 env）兼容回归 (S-06 / E-05) ---
+  clearServerEnv();
+  const localDry = await executeCommand('demo.sess_pw', {}, { dryRun: true, commandsDir: sessCmdDir });
+  assert.equal(localDry.readiness.ready, false);
+  assert.ok(localDry.readiness.blockers[0].includes('kimi-webbridge 未运行'));
+  assert.deepEqual(Object.keys(localDry.readiness.adapters).sort(), ['nodeHttp', 'webbridge'], 'local readiness shape must not change');
+  fs.rmSync(localDry.runFile, { force: true });
+  let localExecErr = null;
+  try { await executeCommand('demo.sess_pw', {}, { dryRun: false, confirm: true, commandsDir: sessCmdDir }); } catch (err) { localExecErr = err; }
+  assert.ok(localExecErr, 'local real exec without webbridge must fail');
+  assert.match(localExecErr.message, /kimi-webbridge 未运行/);
+  if (localExecErr.runFile) fs.rmSync(localExecErr.runFile, { force: true });
+
+  // ===== UI 执行引擎（legacy execution.ui，post_comment 形态）=====
+  const { extractUiActions, hasUiExecution } = await import('../src/ui_executor.js');
+  const uiCmd = {
+    name: 'demo.ui_post', platform: 'demo', riskLevel: 'high',
+    runtime: { auth: { type: 'browser_session_cookie' } },
+    learnedFrom: { url: 'https://demo.test/v/1' },
+    parameters: { text: { type: 'string' }, autoPublish: { type: 'boolean', default: false } },
+    execution: { prefer: ['ui'], ui: { actions: [
+      { action: 'goto', target: 'https://demo.test/v/1' },
+      { action: 'waitFor', selector: 'textarea' },
+      { action: 'fill', selector: 'textarea', value: '{{params.text}}' },
+      { action: 'click', selector: 'button.send', when: '{{params.autoPublish}}' }
+    ] } }
+  };
+  assert.equal(hasUiExecution(uiCmd), true);
+  assert.equal(hasUiExecution({ name: 'x', dataSource: {} }), false);
+  // 模板渲染 + when 门：autoPublish=false → click.when 渲染为 false
+  const actsNoPublish = extractUiActions(uiCmd, { text: 'hi', autoPublish: false });
+  assert.equal(actsNoPublish[2].value, 'hi');
+  assert.equal(actsNoPublish[3].when, false);
+
+  // capability gate：UI 命令仅在服务器模式 + storageState 下 executable
+  const uiCmdDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-ui-cmd-'));
+  try {
+    fs.writeFileSync(path.join(uiCmdDir, 'demo.ui_post.json'), JSON.stringify(uiCmd));
+    clearServerEnv();
+    assert.equal(getExecutionCapability(uiCmd).executable, false, '本地模式 UI 命令不可执行');
+    assert.equal(getExecutionCapability(uiCmd).mode, 'ui_plan');
+    process.env.PLATFORM_COMMAND_USER_ID = 'alice';
+    process.env.PLATFORM_COMMAND_STORAGE_STATE = sessStateFile; // 上文已写入有效 storageState
+    const cap = getExecutionCapability(uiCmd);
+    assert.equal(cap.executable, true, '服务器模式 UI 命令可执行');
+    assert.equal(cap.engine, 'playwright_ui');
+
+    // 真实执行：fake playwright page（handle 流）记录动作序列；when=false 跳过 click
+    const pageCalls = [];
+    const makeHandle = (selector) => ({
+      asElement: () => ({
+        fill: async (v) => pageCalls.push(['fill', selector, v]),
+        click: async () => pageCalls.push(['click', selector]),
+        type: async (v) => pageCalls.push(['type', selector, v]),
+        selectOption: async (v) => pageCalls.push(['select', selector, v]),
+        scrollIntoViewIfNeeded: async () => pageCalls.push(['scroll', selector]),
+        // tagName非 input/textarea → fill 走键盘输入路径（contenteditable 编辑器）
+        evaluate: async () => 'div'
+      }),
+      dispose: async () => {}
+    });
+    const fakePage = {
+      goto: async (u) => pageCalls.push(['goto', u]),
+      evaluateHandle: async (_fn, selector) => { pageCalls.push(['waitFor', selector]); return makeHandle(selector); },
+      keyboard: { type: async (v) => pageCalls.push(['fill', 'keyboard', v]), press: async () => {} },
+      on: () => {},
+      waitForTimeout: async () => {},
+      screenshot: async (o) => pageCalls.push(['screenshot', o.path]),
+      close: async () => {}
+    };
+    const uiFakeContext = { ...fakeContext, newPage: async () => fakePage, pages: () => [] };
+    const uiFakeBrowser = { isConnected: () => true, newContext: async () => uiFakeContext, close: async () => {} };
+    playwrightAdapter.__setPlaywrightLoader(async () => ({ chromium: { launch: async () => uiFakeBrowser } }));
+
+    const uiRun = await executeCommand('demo.ui_post', { text: 'hello', autoPublish: false }, { dryRun: false, confirm: true, commandsDir: uiCmdDir });
+    assert.equal(uiRun.status, 'executed');
+    assert.equal(uiRun.adapter, 'playwright');
+    assert.ok(pageCalls.some((c) => c[0] === 'fill' && c[2] === 'hello'), 'fill 渲染参数（键盘输入路径）');
+    assert.ok(!pageCalls.some((c) => c[0] === 'click' && /send/.test(c[1])), 'autoPublish=false 跳过发布 click');
+    const uiRec = JSON.parse(fs.readFileSync(uiRun.runFile, 'utf8'));
+    assert.equal(uiRec.userId, 'alice');
+    assert.equal(uiRec.adapter, 'playwright');
+    fs.rmSync(uiRun.runFile, { force: true });
+
+    // autoPublish=true → click 执行
+    pageCalls.length = 0;
+    const uiRun2 = await executeCommand('demo.ui_post', { text: 'go', autoPublish: true }, { dryRun: false, confirm: true, commandsDir: uiCmdDir });
+    assert.ok(pageCalls.some((c) => c[0] === 'click' && /send/.test(c[1])), 'autoPublish=true 执行发布 click');
+    fs.rmSync(uiRun2.runFile, { force: true });
+    await playwrightAdapter.closePlaywright();
+  } finally {
+    clearServerEnv();
+    fs.rmSync(uiCmdDir, { recursive: true, force: true });
+  }
+
+  // --- TASK-007：MCP tools schema 快照（RULE-05：不发生破坏性变更） ---
+  const mcpToolsSnapshot = await handleMcpRequest({ jsonrpc: '2.0', id: 91, method: 'tools/list' });
+  assert.deepEqual(mcpToolsSnapshot.result.tools.map((tool) => tool.name).sort(), [
+    'platform_command_agent_manifest',
+    'platform_command_describe',
+    'platform_command_docs',
+    'platform_command_doctor',
+    'platform_command_execute',
+    'platform_command_explain',
+    'platform_command_learn',
+    'platform_command_list',
+    'platform_command_schedule',
+    'platform_command_verify'
+  ]);
+  assert.ok(mcpToolsSnapshot.result.tools.every((tool) => tool.inputSchema && tool.inputSchema.type === 'object'));
+} finally {
+  for (const key of SERVER_ENV_KEYS) {
+    if (savedServerEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = savedServerEnv[key];
+  }
+  playwrightAdapter.__setPlaywrightLoader(null);
+  if (sandboxRoot) fs.rmSync(sandboxRoot, { recursive: true, force: true });
+  if (outsideDir) fs.rmSync(outsideDir, { recursive: true, force: true });
+  if (sessStateFile) fs.rmSync(sessStateFile, { force: true });
+  if (sessCmdDir) fs.rmSync(sessCmdDir, { recursive: true, force: true });
+}
+
+console.log('Server-mode tests passed.');

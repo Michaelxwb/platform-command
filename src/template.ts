@@ -36,6 +36,11 @@ export function renderString(value, context) {
 export function resolvePath(path, context, fallback) {
   if (path.startsWith('params.') && Object.prototype.hasOwnProperty.call(context.params || {}, path.slice(7))) return context.params[path.slice(7)];
   if (context.params && Object.prototype.hasOwnProperty.call(context.params, path)) return context.params[path];
+  // `runtime.*` is a deferred namespace: its values are produced during real
+  // execution (see workflow auxiliary context). At plan/render time it is
+  // expected-absent, so keep the placeholder and do NOT flag it as unresolved
+  // (otherwise failOnUnresolvedTemplates would reject valid commands).
+  if (path.startsWith('runtime.') && !context.runtime) return `{{${path}}}`;
   const parts = path.split('.');
   let current = context;
   for (const part of parts) {

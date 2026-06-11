@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { columnName, escapeXml, zipStore } from './ooxml.js';
+import { resolveOutputPath } from './server_mode.js';
 
 export const EXPORT_CAPABILITIES = new Set(['export_excel', 'export_execl', 'export_word', 'export_ppt']);
 
@@ -11,13 +12,14 @@ export function exportRows({ capability, format, outputPath, columns, rows, titl
   if (!outputPath) throw new Error('outputPath is required for export');
   const normalizedRows = normalizeRows(rows);
   const normalizedColumns = normalizeColumns(columns, normalizedRows);
-  fs.mkdirSync(path.dirname(path.resolve(outputPath)), { recursive: true });
-  if (resolvedCapability === 'export_excel') writeExcel(outputPath, normalizedColumns, normalizedRows);
-  else if (resolvedCapability === 'export_word') writeWord(outputPath, normalizedColumns, normalizedRows, title);
-  else if (resolvedCapability === 'export_ppt') writePpt(outputPath, normalizedColumns, normalizedRows, title);
+  const resolvedPath = resolveOutputPath(outputPath);
+  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+  if (resolvedCapability === 'export_excel') writeExcel(resolvedPath, normalizedColumns, normalizedRows);
+  else if (resolvedCapability === 'export_word') writeWord(resolvedPath, normalizedColumns, normalizedRows, title);
+  else if (resolvedCapability === 'export_ppt') writePpt(resolvedPath, normalizedColumns, normalizedRows, title);
   return {
     capability: resolvedCapability,
-    outputPath: path.resolve(outputPath),
+    outputPath: resolvedPath,
     rows: normalizedRows.length,
     columns: normalizedColumns.map((column) => column.title)
   };
