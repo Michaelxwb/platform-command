@@ -35,6 +35,9 @@ jobs:
           npm pack --pack-destination deploy/pc-local
           ls -la deploy/pc-local/*.tgz
 
+      - name: Set up QEMU   # 跨架构（arm64）模拟构建所需
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -52,14 +55,14 @@ jobs:
           echo "tag=${REF}" >> "$GITHUB_OUTPUT"
 
       # ga-local/ 留空 → Dockerfile 走 git clone GA_REPO（默认作者 fork，公开仓库，含微信补丁）。
-      # 默认只构建 amd64（服务器架构，原生快）；如需多架构改 platforms 为
-      # linux/amd64,linux/arm64，但 arm64 走 QEMU 模拟，重镜像可能超时，慎用。
+      # 双架构：amd64 原生快；arm64 在 amd64 runner 上走 QEMU 模拟，重镜像（GA pip + Playwright）
+      # 较慢，若超时/OOM 改用原生 arm64 runner 的矩阵构建（见 README/CI 说明）。
       - name: Build & push image
         uses: docker/build-push-action@v6
         with:
           context: deploy
           file: deploy/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}
