@@ -2,12 +2,15 @@
 # CLI-03：构建基础镜像，tag 绑定 platform-command 与 GA 双版本（FEAT-01）。
 # 用法: build-image.sh [--pc-version <npm版本>] [--ga-ref <git ref>] [--tag <自定义tag>]
 #                       [--pc-local] [--ga-local <本地 GA fork 路径>]
-# --ga-local：用本地 GA fork 代码（验证未合并的修复），不走 git clone 上游。
+# --ga-repo：GA 仓库地址（默认作者 fork，含微信补丁）；--ga-ref：分支。
+# --ga-local：用本地 GA fork 目录（不走 git clone）。
 set -euo pipefail
 cd "$(dirname "$0")"
 
 PC_VERSION="latest"
 GA_REF="main"
+# 默认 GA 源 = 作者 fork（含微信容器化补丁）；可用 --ga-repo 覆盖。
+GA_REPO="https://github.com/Michaelxwb/GenericAgent"
 CUSTOM_TAG=""
 PC_LOCAL=false
 GA_LOCAL_PATH=""
@@ -15,6 +18,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --pc-version) PC_VERSION="$2"; shift 2 ;;
     --ga-ref)     GA_REF="$2"; shift 2 ;;
+    --ga-repo)    GA_REPO="$2"; shift 2 ;;
     --tag)        CUSTOM_TAG="$2"; shift 2 ;;
     --pc-local)   PC_LOCAL=true; shift ;;
     --ga-local)   GA_LOCAL_PATH="$2"; shift 2 ;;
@@ -72,8 +76,10 @@ fi
 echo "[build] Playwright 版本对齐 ✓ (${BASE_PW_VERSION})"
 
 TAG="${CUSTOM_TAG:-muad:pc${PC_VERSION}-ga$(echo "${GA_REF}" | tr '/' '-')}"
+[[ -z "${GA_LOCAL_PATH}" ]] && echo "[build] GA 源: ${GA_REPO}@${GA_REF}"
 docker build \
   --build-arg "PLATFORM_COMMAND_VERSION=${PC_VERSION}" \
+  --build-arg "GA_REPO=${GA_REPO}" \
   --build-arg "GA_REF=${GA_REF}" \
   -t "${TAG}" .
 

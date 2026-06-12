@@ -29,7 +29,9 @@ RUN if ls /tmp/pc-local/*.tgz >/dev/null 2>&1; then \
 # （pywebview 需 GTK/WebKit 桌面依赖），TUI 依赖 textual 单独补。
 # ga-local/ 内若有本地 fork 代码（build-image.sh --ga-local 拷入，已排除
 # .git/mykey.py/memory 等），优先用本地 fork（验证未合并的修复）；否则 git clone 上游。
-ARG GA_REPO=https://github.com/lsdefine/GenericAgent
+# 默认用本仓库作者的 fork（含微信前端容器化补丁等），上游 lsdefine/GenericAgent 不含这些修复。
+# 需要换源/换分支时用 build-image.sh 的 --ga-repo / --ga-ref 覆盖。
+ARG GA_REPO=https://github.com/Michaelxwb/GenericAgent
 ARG GA_REF=main
 COPY ga-local/ /tmp/ga-local/
 RUN if [ -f /tmp/ga-local/agentmain.py ]; then \
