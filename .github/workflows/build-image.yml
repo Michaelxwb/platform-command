@@ -64,6 +64,7 @@ jobs:
           file: deploy/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false   # 不附带构建溯源 attestation，避免 GHCR 出现 unknown/unknown 条目
           tags: |
             ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE }}:latest
