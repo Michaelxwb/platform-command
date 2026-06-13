@@ -42,6 +42,9 @@ grep -qF 'platform_command_sop.md' "${INSIGHT}" || printf '\n%s\n' "${SOP_HINT}"
 # 定时任务指针：让模型知道有"文件式定时任务+自动推送"框架，别再问用户投递方式。
 SCHED_HINT='[定时任务] 用户要"每天/每周定时做某事并发给我"时：读 ../memory/scheduled_task_sop.md，在 ../sche_tasks/ 建任务 JSON 即可。结果到点会由框架自动推送回创建者的 IM（target 由前端自动盖，谁建谁收），不要问用户"文件/邮件/webhook 哪种投递"。'
 grep -qF 'scheduled_task_sop.md' "${INSIGHT}" || printf '\n%s\n' "${SCHED_HINT}" >> "${INSIGHT}"
+# 浏览器指针：防止注入记忆被裁后，模型不知道浏览器工具而去写裸 playwright 脚本被反爬挡。
+BROWSER_HINT='[浏览器] 截图/读网页/操作页面等浏览器任务，一律用 web_scan / web_execute_js 工具（底层 headless playwright，已带反检测指纹；截图用 web_execute_js {"cmd":"cdp","method":"Page.captureScreenshot","params":{"format":"png"}}）。禁止用 code_run 自己写 node/playwright 裸脚本——裸脚本无指纹会被反爬拦截、空转。详见 ../memory/tmwebdriver_sop.md。'
+grep -qF 'web_execute_js' "${INSIGHT}" || printf '\n%s\n' "${BROWSER_HINT}" >> "${INSIGHT}"
 
 # 微信前端用扫码登录，token 存 ~/.wxbot —— 持久化到 data volume，避免重启丢失。
 ln -sfn /data/ga/.wxbot "${HOME:-/root}/.wxbot" 2>/dev/null || true
