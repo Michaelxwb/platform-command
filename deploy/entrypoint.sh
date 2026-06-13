@@ -39,6 +39,9 @@ INSIGHT=/data/ga/memory/global_mem_insight.txt
 SOP_HINT='[环境约束] 本机为 headless 服务器容器。铁律：平台操作先用 platform-command list/explain 查有无匹配 command——有 command 的领域只能走 platform-command，执行失败/不可执行就停下报告用户，严禁用脚本(requests/playwright/curl)自己代偿；无任何 command 覆盖的领域才可自由发挥。执行命令首选 pc-exec（防呆）：pc-exec <command> key=value...（真实执行，自动带 --execute-real --confirm）；参数只用裸 key=value，不要 -- 前缀/--param/--json，没有 --approve/--live，报错会附正确示例照着改、勿试错。截图/看公开网页可用 headless Chromium，但禁止用它做有 command 覆盖的操作、禁止读 /secrets。浏览器注入/键鼠/屏幕视觉/ADB 无载体不要尝试。详见 ../memory/platform_command_sop.md。'
 touch "${INSIGHT}"
 grep -qF 'platform_command_sop.md' "${INSIGHT}" || printf '\n%s\n' "${SOP_HINT}" >> "${INSIGHT}"
+# 定时任务指针：让模型知道有"文件式定时任务+自动推送"框架，别再问用户投递方式。
+SCHED_HINT='[定时任务] 用户要"每天/每周定时做某事并发给我"时：读 ../memory/scheduled_task_sop.md，在 ../sche_tasks/ 建任务 JSON 即可。结果到点会由框架自动推送回创建者的 IM（target 由前端自动盖，谁建谁收），不要问用户"文件/邮件/webhook 哪种投递"。'
+grep -qF 'scheduled_task_sop.md' "${INSIGHT}" || printf '\n%s\n' "${SCHED_HINT}" >> "${INSIGHT}"
 
 # 微信前端用扫码登录，token 存 ~/.wxbot —— 持久化到 data volume，避免重启丢失。
 ln -sfn /data/ga/.wxbot "${HOME:-/root}/.wxbot" 2>/dev/null || true
