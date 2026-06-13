@@ -9,10 +9,40 @@ validators:
       trigger: "**/*.{ts,tsx}"
       command: "npx tsc --noEmit"
       timeout: 30000
-      on_fail: "检查类型定义，参见 specs/backend/code-quality-performance.md"
+      on_fail: "检查类型定义，参见 specs/frontend/quality-standards.md"
 
-    - name: "Node 单元测试"
-      trigger: "**/*.{ts,js}"
-      command: "npm run build && npm test"
-      timeout: 120000
-      on_fail: "测试失败（tests/run-tests.ts 基于 dist 产物运行，需先 build），检查断言是否需要更新"
+    - name: "Vue 类型检查"
+      trigger: "**/*.vue"
+      command: "npx vue-tsc --noEmit"
+      timeout: 30000
+      on_fail: "检查 Vue 组件类型定义，参见 specs/frontend/component-specs.md"
+
+    - name: "ESLint"
+      trigger: "**/*.{ts,tsx,js,jsx,vue}"
+      command: "npx eslint {files}"
+      timeout: 15000
+      on_fail: "运行 npx eslint --fix 自动修复，参见 specs/frontend/quality-standards.md"
+
+    - name: "Stylelint"
+      trigger: "**/*.{css,scss,less}"
+      command: "npx stylelint {files}"
+      timeout: 15000
+      on_fail: "运行 npx stylelint --fix 自动修复，参见 specs/frontend/component-specs.md"
+
+    - name: "前端单元测试"
+      trigger: "**/*.{ts,tsx,js,jsx,vue}"
+      command: "npx vitest run --reporter=dot"
+      timeout: 60000
+      on_fail: "前端测试失败，检查组件渲染和 mock 是否需要更新"
+
+    - name: "Python 类型检查"
+      trigger: "**/*.py"
+      command: "python3 -m mypy {files}"
+      timeout: 30000
+      on_fail: "检查类型注解，参见 specs/backend/code-quality-performance.md"
+
+    - name: "Pytest"
+      trigger: "**/*.py"
+      command: "python3 -m pytest --tb=short -q"
+      timeout: 60000
+      on_fail: "测试失败，检查断言和 mock 是否需要更新"

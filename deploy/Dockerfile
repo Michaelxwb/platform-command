@@ -43,7 +43,10 @@ RUN if [ -f /tmp/ga-local/agentmain.py ]; then \
     && python3 -m venv /opt/ga-venv \
     && /opt/ga-venv/bin/pip install --no-cache-dir -e /opt/generic-agent \
     && /opt/ga-venv/bin/pip install --no-cache-dir textual wecom_aibot_sdk dingtalk-stream python-telegram-bot qrcode pillow pycryptodome \
-    && /opt/ga-venv/bin/python -c "import sys; sys.path.insert(0, '/opt/generic-agent'); import agent_loop; print('GA import OK')"
+    # GA 浏览器后端 playwright_driver 用：pin 1.52.0 与基础镜像/npm 对齐，
+    # 复用镜像已有的 /ms-playwright/chromium-1169，无需再下载浏览器二进制。
+    && /opt/ga-venv/bin/pip install --no-cache-dir "playwright==${PLAYWRIGHT_NPM_VERSION}" \
+    && /opt/ga-venv/bin/python -c "import sys; sys.path.insert(0, '/opt/generic-agent'); import agent_loop; from playwright.sync_api import sync_playwright; print('GA + py-playwright import OK')"
 
 # 全局命令库挂载点（管理员维护，运行时只读挂载，FEAT-08）
 ENV PLATFORM_COMMANDS_DIR=/opt/platform-commands
