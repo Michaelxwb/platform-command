@@ -16,6 +16,9 @@ services:
       # 复用上面的 storageState 登录态。
       GA_BROWSER_BACKEND: playwright
       GA_BROWSER_STORAGE_STATE: /secrets/storage-state/default.storageState.json
+      # 定时任务主动推送目标：用户的 IM 标识（WeCom 填 userid；Telegram 填数字 chat id）。
+      # 空则 scheduler 到点不推送。每用户不同，建议放各自 .env 覆盖。
+      GA_PUSH_TARGET: ${GA_PUSH_TARGET}
     volumes:
       # 命令库只读（FEAT-08）：含 signer 代码在内仅管理员可变更
       - ${COMMANDS_DIR}:/opt/platform-commands:ro

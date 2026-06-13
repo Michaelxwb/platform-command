@@ -17,7 +17,7 @@ fi
 # GA 状态目录持久化：memory/skills/temp 落到 /data/ga volume，
 # 首次启动时把仓库自带的种子内容（内置 SOP 等）拷贝过去。
 mkdir -p /data/platform/output /data/ga
-for state_dir in memory skills temp; do
+for state_dir in memory skills temp sche_tasks; do
   if [[ ! -d "/data/ga/${state_dir}" ]]; then
     if [[ -d "${GA_DIR}/${state_dir}" && ! -L "${GA_DIR}/${state_dir}" ]]; then
       cp -r "${GA_DIR}/${state_dir}" "/data/ga/${state_dir}"
