@@ -1,23 +1,31 @@
+---
+description: 涉及 API 设计/部署/配置/版本兼容时适用：平台规则
+---
+
 # Backend Platform Rules
 
 ## Rules
-- `execute` 默认 dry-run；真实执行必须显式 `--execute-real --confirm`，任何代码路径不得绕过该安全门 `[README] [docs/safety.md]`
-- command JSON schema 变更必须向后兼容：已发布的 command 定义在新版本框架下必须仍可加载执行（never break userspace）
-- `playwright` 必须保持 optionalDependency，缺失时框架核心功能（list/describe/verify/execute HTTP 类）不受影响 `[package.json]`
-- 命令必须显式声明依赖（requirements），执行前通过 describe/dry-run 暴露 readiness，不得隐式假设 webbridge 可用 `[git log 965c7ba]`
-- 发布前 `prepack` 强制 `build && test`，禁止跳过 `[package.json]`
-- 外部 commands 通过 `PLATFORM_COMMANDS_DIR` 注入，框架不得假设其存在或可写
-- 服务器模式由显式 env 启用（`PLATFORM_COMMAND_USER_ID` / `STORAGE_STATE` / `OUTPUT_DIR` / `DATA_DIR`）；无任何此类 env = 本地模式，行为必须与现版本逐行一致。配置不完整（如设了 STORAGE_STATE 未设 USER_ID）必须显式抛错，禁止静默降级 `[src/server_mode.ts resolveServerMode]`
-- 适配器选择只看显式 env，禁止环境自动探测：`browser_session_cookie` + STORAGE_STATE → Playwright，否则 webbridge（本地路径与报错文案逐字不变）`[src/capabilities.ts resolveAdapter]`
-- `userId` 只来自容器 env，禁止经命令参数 / 对话层注入；run 记录归属字段由 server_mode 注入（身份不可篡改，NFR-SEC-01）`[src/server_mode.ts] [src/runs.ts]`
-- 服务器模式下数据落点（run 记录 + 会话失效标记）由 `PLATFORM_COMMAND_DATA_DIR` 锚定，不得随子进程 cwd 漂移；输出经 `resolveOutputPath` 收敛到 `OUTPUT_DIR`，realpath 防 `..` / 符号链接越界 `[src/server_mode.ts resolveDataBaseDir/resolveOutputPath]`
+- API 变更必须保持向后兼容；破坏性变更走新版本路径（`/v2/...`）并保留旧版本至少一个发布周期
+- 配置项分环境管理（dev / staging / prod），敏感值走密钥管理服务，禁止入库
+- 新增外部依赖必须更新部署文档与 `requirements` / `package.json` 锁文件
+- 灰度 / 实验性功能必须由 feature flag 控制，默认关闭
+- API 响应必须走统一封装：`success(data)` / `fail(code, message?)`，handler 禁止手写 `{code, message, data}` 字面量
+- 错误码 → message 映射定义为常量，按业务模块拆分（`errors/order.py`、`errors/user.py`），错误码全局唯一，禁止重复
+- Playwright 版本三方对齐：基础镜像 tag、npm 包、python pip 包共用同一版本号，由单一 `ARG PLAYWRIGHT_NPM_VERSION` 驱动，禁止各处独立写版本（py/node playwright 与浏览器二进制 revision 强绑定，漂移会导致"浏览器找不到"或重复下载）
+- 容器为 headless 无桌面环境：浏览器自动化一律走 headless playwright + 复用 `storageState` 登录态；进程禁止假设交互式终端 / 桌面 API（stdin tty、`os.startfile`、等待桌面浏览器 userscript 回连等）
 
 ## Patterns
-- 风险分级：command 定义携带 riskLevel，describe/agent manifest 对 Agent 透出，高风险操作要求 confirm
-- 验收契约：真实执行后由 `acceptance.ts` 自动核验（file_exists / data_contains），失败要在结果中显式上报 `[git log 0f45b1a]`
-- 调度只生成宿主调度器规格（`schedule plan`），不自动安装 `[README]`
+- API 响应统一结构：`{ code, message, data }`（`code=0` 表示成功），全项目一致
+- 错误码命名空间：模块前缀 + 顺序号（如订单错误码 `10xxx`、用户 `20xxx`），便于定位归属
+- 异常 → 错误码：自定义业务异常类携带 `code`，由中间件统一转 `fail(code)` 响应
+- 配置加载优先级：环境变量 > 配置文件 > 默认值
+- 健康检查端点（`/healthz`、`/readyz`）必须独立于业务认证
+- 部署前跑 smoke test，覆盖核心路径
+- 镜像构建期装完关键运行时依赖后，立即 `python -c "import ..."` 做 import smoke test（构建期自检，失败即构建失败），区别于运行期部署 smoke test
 
 ## Anti-Patterns
-- 禁止把 secret / cookie / token 写进 command JSON 或代码库 `[CLAUDE.md]`
-- 禁止破坏已发布 command 的参数语义后不升版本直接发布
-- 禁止新增硬依赖来实现可选能力（浏览器、导出等走可选依赖或 webbridge）
+- 禁止在生产环境开启 `DEBUG` / 详细堆栈输出
+- 禁止把 secret 写进代码库或 dev 配置文件
+- 禁止破坏性 API 变更不通知调用方直接发布
+- 禁止 feature flag 长期遗留，上线稳定后必须清理
+- 禁止在 handler 里直接拼响应结构或硬编码错误 message，必须引用 `errors/` 常量并走 `success / fail` 封装

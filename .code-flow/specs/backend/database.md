@@ -1,6 +1,8 @@
-# Backend Database
+---
+description: 涉及数据库/ORM/迁移/查询时适用：schema 与数据访问约束
+---
 
-> 本项目当前无数据库（数据持久化仅为 `runs/` JSON 日志与 command JSON 文件）。以下为通用规则，仅在未来引入 DB 时生效。
+# Backend Database
 
 ## Rules
 - 所有 SQL 必须参数化，禁止字符串拼接 / 模板插值用户输入

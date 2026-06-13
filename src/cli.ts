@@ -129,6 +129,20 @@ function extractScheduleParams(args, subcmd = 'plan') {
   return params;
 }
 
+// execute 的实际执行 + 出错附正确调用示例，供 `execute` 子命令与命令 id 直跑两条路径复用。
+async function executeAndPrint(commandId, args) {
+  const params = extractExecuteParams(args);
+  if (args.dryRun && args.executeReal) throw new Error(`--dry-run and --execute-real cannot be used together\n${usageHint(commandId, args.commandsDir)}`);
+  if (args.executeReal && !args.confirm) throw new Error(`--execute-real requires --confirm（真实执行必须二者同时给）\n${usageHint(commandId, args.commandsDir)}`);
+  try {
+    const result = await executeCommand(commandId, params, { dryRun: !args.executeReal, confirm: !!args.confirm, commandsDir: args.commandsDir });
+    printJson(result);
+  } catch (err) {
+    err.message = `${err.message}\n${usageHint(commandId, args.commandsDir)}`;
+    throw err;
+  }
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const cmd = argv[0];
@@ -253,17 +267,7 @@ async function main() {
   }
   if (cmd === 'execute') {
     if (!args.command) throw new Error('execute requires --command');
-    const params = extractExecuteParams(args);
-    if (args.dryRun && args.executeReal) throw new Error(`--dry-run and --execute-real cannot be used together\n${usageHint(args.command, args.commandsDir)}`);
-    if (args.executeReal && !args.confirm) throw new Error(`--execute-real requires --confirm（真实执行必须二者同时给）\n${usageHint(args.command, args.commandsDir)}`);
-    try {
-      const result = await executeCommand(args.command, params, { dryRun: !args.executeReal, confirm: !!args.confirm, commandsDir: args.commandsDir });
-      printJson(result);
-    } catch (err) {
-      // 参数/格式类错误：附上该命令的正确调用示例，避免反复试错（尤其 Agent）。
-      err.message = `${err.message}\n${usageHint(args.command, args.commandsDir)}`;
-      throw err;
-    }
+    await executeAndPrint(args.command, args);
     return;
   }
   if (cmd === 'learn') {
@@ -278,7 +282,15 @@ async function main() {
     printJson(result);
     return;
   }
-  throw new Error(`Unknown command: ${cmd}`);
+  // 简写路由：`platform-command <domain.action> [key=value...]` 等价于
+  // `platform-command execute --command <domain.action> ...`（默认 dry-run）。
+  // 命令 id 形如 domain.action（含点），Agent 常误当子命令直跑导致 "Unknown command"。
+  if (cmd.includes('.')) {
+    await executeAndPrint(cmd, args);
+    return;
+  }
+  // 未知子命令：也给出 execute 的正确姿势，别让调用方（尤其 Agent）卡在裸报错上。
+  throw new Error(`Unknown command: ${cmd}\n${usageHint(cmd, args.commandsDir)}`);
 }
 
 main().catch((err) => {

@@ -12,6 +12,10 @@ services:
       PLATFORM_COMMAND_OUTPUT_DIR: /data/platform/output
       PLATFORM_COMMAND_DATA_DIR: /data/platform
       PLATFORM_COMMANDS_DIR: /opt/platform-commands
+      # GA 浏览器后端：容器内无桌面浏览器，用 headless playwright（playwright_driver.py）
+      # 复用上面的 storageState 登录态。
+      GA_BROWSER_BACKEND: playwright
+      GA_BROWSER_STORAGE_STATE: /secrets/storage-state/default.storageState.json
     volumes:
       # 命令库只读（FEAT-08）：含 signer 代码在内仅管理员可变更
       - ${COMMANDS_DIR}:/opt/platform-commands:ro
