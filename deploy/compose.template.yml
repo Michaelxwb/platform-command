@@ -12,6 +12,9 @@ services:
       PLATFORM_COMMAND_OUTPUT_DIR: /data/platform/output
       PLATFORM_COMMAND_DATA_DIR: /data/platform
       PLATFORM_COMMANDS_DIR: /opt/platform-commands
+      # 容器时区：默认 UTC，会导致定时任务 schedule 时间与用户本地差 8h。设为用户所在时区，
+      # 让 scheduler 的 datetime.now() 与用户"08:00"一致。其他时区改这里或放 .env 覆盖。
+      TZ: Asia/Shanghai
       # GA 浏览器后端：容器内无桌面浏览器，用 headless playwright（playwright_driver.py）
       # 复用上面的 storageState 登录态。
       GA_BROWSER_BACKEND: playwright
