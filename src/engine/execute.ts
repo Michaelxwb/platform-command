@@ -134,16 +134,19 @@ export async function executeCommand(commandName, providedParams = {}, options =
   const capability = getExecutionCapability(command);
   if (capability.executable) {
     const startedAt = new Date().toISOString();
+    const commandDir = commandResourceRoot(file);
+    // 多站点 host 解析一次，向子命令透传（options.site 已定则复用，避免 workflow 各步重解析分叉）。
+    const site = options.site || (await import('./site.js')).resolveSiteOrigin(params, { commandDir });
     try {
       const result = capability.engine === 'playwright_ui'
-        ? await executeUiActions(command, params, { commandDir: commandResourceRoot(file) })
+        ? await executeUiActions(command, params, { commandDir })
         : capability.engine === 'workflow_compose'
-          ? await (await import('./workflow_executor.js')).executeWorkflow(command, params, { commandsDir: options.commandsDir, confirm: options.confirm, depth: options.depth || 0 })
+          ? await (await import('./workflow_executor.js')).executeWorkflow(command, params, { commandsDir: options.commandsDir, confirm: options.confirm, depth: options.depth || 0, site })
           : capability.engine === 'store_op'
-            ? await executeStoreCommand(command, params, { commandDir: commandResourceRoot(file) })
+            ? await executeStoreCommand(command, params, { commandDir })
             : capability.engine === 'ui_intercept'
-              ? await (await import('./intercept_executor.js')).executeInterceptFlow(command, params, { commandDir: commandResourceRoot(file) })
-              : await executeAutoCapability(command, params, { commandDir: commandResourceRoot(file), paramsMeta });
+              ? await (await import('./intercept_executor.js')).executeInterceptFlow(command, params, { commandDir, site })
+              : await executeAutoCapability(command, params, { commandDir, paramsMeta, site });
       const acceptance = evaluateAcceptance(command, { evidence: options.evidence || {}, result });
       const response = { ...result, acceptance };
       const recorded = recordRun({

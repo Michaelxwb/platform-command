@@ -22,6 +22,7 @@ import { describeCommand } from '../src/model/describe.js';
 import { readStore, writeStore, replaceStore, listStore, deleteStore } from '../src/io/store.js';
 import { calcDateRange } from '../commands/mss/code/date_range.js';
 import { applyResponseRewrite, pollUntilReady, executeInterceptFlow, setPath } from '../src/engine/intercept_executor.js';
+import { resolveSiteOrigin, applySiteOrigin } from '../src/engine/site.js';
 import { iterTriggerTimes, computeMissedJobs, runWithConcurrency, readHeartbeat, writeHeartbeat, loadScheduleEntries, selectDueJobs } from '../src/schedule/daemon.js';
 import { buildBody as buildSendEmailBody } from '../commands/mss/code/send_email_body.js';
 import { derive as deriveConfigFlags } from '../commands/mss/code/config_flags.js';
@@ -1464,6 +1465,46 @@ console.log('date range tests passed.');
   assert.equal(timedOut.timedOut, true);
 }
 console.log('intercept helpers tests passed.');
+
+// --- 多站点 host 解析（国内/海外同一套命令打不同实例）---
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-sites-'));
+  fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'config', 'sites.json'), JSON.stringify({
+    default: 'sea',
+    sites: { sea: 'https://soar.sea.sangfor.com', cn: 'https://soar.sangfor.com.cn' }
+  }));
+  const savedEnv = process.env.PLATFORM_COMMAND_SITE;
+  delete process.env.PLATFORM_COMMAND_SITE;
+
+  // 无配置目录 → null（向后兼容：不改写）
+  assert.equal(resolveSiteOrigin({}, { commandDir: path.join(dir, 'nope') }), null);
+
+  // 默认选 sea
+  assert.equal(resolveSiteOrigin({}, { commandDir: dir }).host, 'soar.sea.sangfor.com');
+
+  // env 覆盖默认
+  process.env.PLATFORM_COMMAND_SITE = 'cn';
+  assert.equal(resolveSiteOrigin({}, { commandDir: dir }).host, 'soar.sangfor.com.cn');
+
+  // param 最高优先级（压过 env）
+  assert.equal(resolveSiteOrigin({ site: 'sea' }, { commandDir: dir }).host, 'soar.sea.sangfor.com');
+  delete process.env.PLATFORM_COMMAND_SITE;
+
+  // 未知 site → 抛错并列出可选
+  assert.throws(() => resolveSiteOrigin({ site: 'us' }, { commandDir: dir }), /未知 site 'us'.*sea, cn/s);
+
+  // applySiteOrigin：换 origin 保留 path/query；空 site / 相对 url 不动
+  const cn = resolveSiteOrigin({ site: 'cn' }, { commandDir: dir });
+  assert.equal(applySiteOrigin('https://soar.sea.sangfor.com/order/v1/report/report_status?x=1', cn),
+    'https://soar.sangfor.com.cn/order/v1/report/report_status?x=1');
+  assert.equal(applySiteOrigin('https://soar.sea.sangfor.com/index.html', null), 'https://soar.sea.sangfor.com/index.html');
+  assert.equal(applySiteOrigin('/relative/path', cn), '/relative/path');
+
+  if (savedEnv !== undefined) process.env.PLATFORM_COMMAND_SITE = savedEnv;
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+console.log('multi-site host resolution tests passed.');
 
 // --- TASK-003：拦截流编排（fake playwright：改写 export_locales + 捕获 taskId + 轮询） ---
 {

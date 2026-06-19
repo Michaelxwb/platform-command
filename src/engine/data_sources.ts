@@ -19,7 +19,7 @@ export async function readDataSource(dataSource, params = {}, options = {}) {
 }
 
 async function readHttpJsonSource(dataSource, params, options) {
-  const context = { params, steps: {}, cursor: {}, warnings: [], commandDir: options.commandDir, viaBrowser: !!options.viaBrowser, browserAdapter: options.browserAdapter || 'webbridge', session: options.session || {}, cookieHeader: options.cookieHeader };
+  const context = { params, steps: {}, cursor: {}, warnings: [], commandDir: options.commandDir, viaBrowser: !!options.viaBrowser, browserAdapter: options.browserAdapter || 'webbridge', session: options.session || {}, cookieHeader: options.cookieHeader, site: options.site };
   let rows = [];
   let title = dataSource.title || '';
   const meta = {};
@@ -88,8 +88,10 @@ const DEFAULT_FETCH_TIMEOUT_MS = Number(process.env.PLATFORM_COMMAND_FETCH_TIMEO
 
 async function fetchStepJson(step, context) {
   const request = renderValue(step.request || {}, context);
-  // nextUrl（HATEOAS 翻页）已是完整下一页地址，直接用它，跳过模板 url + query 拼装。
-  const target = new URL(context.cursor?.nextUrl || request.url);
+  const { applySiteOrigin } = await import('./site.js');
+  // nextUrl（HATEOAS 翻页）已是完整下一页地址（且已在选定 host 上），直接用；
+  // 首请求按选定 site 改写 origin（多站点：国内/海外同一套命令）。
+  const target = new URL(context.cursor?.nextUrl || applySiteOrigin(request.url, context.site));
   if (!context.cursor?.nextUrl) {
     const query = await signQueryWithCommandCode(request.query || {}, request.signer, context);
     for (const [key, value] of Object.entries(query)) target.searchParams.set(key, String(value));

@@ -29,6 +29,18 @@
 - **导出（interceptFlow）**：Playwright 开导出页 + `page.route` 改写 `export_locales` + 抓 `generate_report` 的 task_id + 轮询 `report_status`。
 - 请求头 `X-Csrftoken` 取自 `csrf_token` cookie（`{{session.csrfToken}}`）。401/403 或非 0 code 刷新登录态，命令不自动重试。
 
+### 多站点（国内/海外，同一套命令）
+
+soar 有多套实例（海外 `sea`、国内 `cn`），命令代码不分叉。host 由 `commands/mss/config/sites.json` 配置：
+```json
+{ "default": "sea", "sites": { "sea": "https://soar.sea.sangfor.com", "cn": "https://soar.sangfor.com.cn" } }
+```
+调用时选实例，优先级 **`site` 参数 > 环境变量 `PLATFORM_COMMAND_SITE` > 配置 `default`**：
+- 单次：`mss.export_report companyId=… site=cn`（任意 mss 命令都接受 `site`）。
+- 整个 MCP server 默认走某实例：在该 server 的 env 设 `PLATFORM_COMMAND_SITE=cn`。
+
+框架在发请求时按选定 site 改写 origin，并按该 host 自动挑对应平台 cookie——所以**登录态导出需覆盖你要用的所有实例域名**（浏览器插件里把 `sea`/`cn` 两个域都配上）。未配 `sites.json` 的命令包行为不变（沿用命令内默认 host）。
+
 > **一套代码、一套配置，两种部署环境（差异仅"补 chromium"一项）：**
 > - **生产**：Docker 容器（headless），镜像自带 chromium，导出开箱即用；周/月定时由容器内 GA 调度框架驱动（非 platform-command daemon）。
 > - **调试沙箱**：本身直连 soar（**无需代理**）。沙箱缺 bundled chromium——**手动补一次**：把 Playwright 标准 chromium 拷进共享项目目录、设 `PLAYWRIGHT_BROWSERS_PATH`（见「导出在沙箱」）。除此之外，命令/配置/代码与生产完全一致。

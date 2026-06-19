@@ -81,7 +81,7 @@ export async function executeWorkflow(command, params = {}, options = {}) {
         const itemCtx = { ...context, [as]: item };
         const subParams = renderValue(step.params || {}, itemCtx);
         const result = await withTimeout(
-          executeCommand(step.command, subParams, { dryRun: false, confirm: options.confirm, commandsDir: options.commandsDir, depth: depth + 1 }),
+          executeCommand(step.command, subParams, { dryRun: false, confirm: options.confirm, commandsDir: options.commandsDir, depth: depth + 1, site: options.site }),
           STEP_TIMEOUT_MS, `${id}[forEach]`
         );
         if (result?.acceptance?.status === 'failed') throw new Error('acceptance failed');
@@ -115,7 +115,8 @@ export async function executeWorkflow(command, params = {}, options = {}) {
           dryRun: false,
           confirm: options.confirm,
           commandsDir: options.commandsDir,
-          depth: depth + 1
+          depth: depth + 1,
+          site: options.site
         }),
         STEP_TIMEOUT_MS,
         id

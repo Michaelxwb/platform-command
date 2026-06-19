@@ -1,0 +1,7 @@
+{
+  "default": "sea",
+  "sites": {
+    "sea": "https://soar.sea.sangfor.com",
+    "cn": "https://soar.sangfor.com.cn"
+  }
+}

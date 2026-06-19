@@ -30,12 +30,14 @@ export function cookieSessionFromState(cookies = [], host) {
   };
 }
 
-async function resolveAdapter(command) {
+async function resolveAdapter(command, site) {
   const authType = command.runtime?.auth?.type || '';
   const needsBrowserFetch = authType === 'browser_session_cookie';
   if (!needsBrowserFetch) return { viaBrowser: false, session: {}, adapter: 'node_http' };
 
-  const targetUrl = commandTargetUrl(command);
+  const { applySiteOrigin } = await import('./site.js');
+  // 多站点：实际请求的 host 取选定 site（origin 改写后），cookie 选择/会话预热都按它来。
+  const targetUrl = applySiteOrigin(commandTargetUrl(command), site);
   if (!targetUrl) {
     throw new Error(
       `此命令需要已登录的浏览器会话（sessionRef: ${command.sessionRef || '?'}），` +
@@ -88,11 +90,11 @@ export const JSON_CAPABILITIES = new Set(['return_json', 'save_json']);
 export async function executeAutoCapability(command, params, options = {}) {
   if (!hasAutoCapability(command)) return null;
 
-  const { viaBrowser, session, adapter, cookieHeader } = await resolveAdapter(command);
+  const { viaBrowser, session, adapter, cookieHeader } = await resolveAdapter(command, options.site);
 
   const context = { params, steps: {}, warnings: [], session };
   const dataSource = renderValue(command.dataSource, context);
-  const data = await readDataSource(dataSource, params, { commandDir: options.commandDir, viaBrowser, session, browserAdapter: adapter, cookieHeader });
+  const data = await readDataSource(dataSource, params, { commandDir: options.commandDir, viaBrowser, session, browserAdapter: adapter, cookieHeader, site: options.site });
   context.steps[dataSource.id || 'data'] = { rows: data.rows, title: data.title };
 
   const output = renderValue(command.output, context);

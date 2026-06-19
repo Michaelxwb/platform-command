@@ -111,11 +111,17 @@ function urlMatcher(pattern) {
 
 export async function executeInterceptFlow(command, params = {}, options = {}) {
   const { withPlaywrightPage, fetchViaPlaywright } = await import('../adapter/playwright_adapter.js');
+  const { applySiteOrigin } = await import('./site.js');
+  const site = options.site;
   const flow = command.interceptFlow || {};
   const ctx = { params, steps: {}, capture: {} };
-  const url = flow.urlBuilder
-    ? await runCommandModule(flow.urlBuilder, ctx, options.commandDir, 'buildUrl')
-    : renderValue(flow.url, ctx);
+  // 多站点：导出页与 poll 接口的 origin 按选定 site 改写（cookie 由 storageState 浏览器按 host 自动选）。
+  const url = applySiteOrigin(
+    flow.urlBuilder
+      ? await runCommandModule(flow.urlBuilder, ctx, options.commandDir, 'buildUrl')
+      : renderValue(flow.url, ctx),
+    site
+  );
 
   // 预计算各 rewrite 的改写规格（value 支持 builder JS，如按 locale 拼 export_locales）。
   const rewrites = [];
@@ -137,7 +143,7 @@ export async function executeInterceptFlow(command, params = {}, options = {}) {
   if (flow.poll) {
     const spec0 = renderValue(flow.poll, { ...ctx, capture: {} });
     try {
-      const body0 = await fetchViaPlaywright(spec0.url, {
+      const body0 = await fetchViaPlaywright(applySiteOrigin(spec0.url, site), {
         method: spec0.method || 'POST',
         headers: spec0.headers || {},
         body: spec0.body !== undefined ? JSON.stringify(spec0.body) : undefined
@@ -208,7 +214,7 @@ export async function executeInterceptFlow(command, params = {}, options = {}) {
     // 抓到 task_id → 按 id 精确轮询；没抓到 → 清空 matchValue，走快照差集兜底。
     const pollSpec = haveTaskId ? spec : { ...spec, matchValue: '', excludeIds: snapshotIds };
     poll = await pollUntilReady(
-      () => fetchViaPlaywright(spec.url, {
+      () => fetchViaPlaywright(applySiteOrigin(spec.url, site), {
         method: spec.method || 'POST',
         headers: spec.headers || {},
         body: spec.body !== undefined ? JSON.stringify(spec.body) : undefined
