@@ -21,7 +21,7 @@ import { doctorCommand, doctorAll } from '../src/model/doctor.js';
 import { describeCommand } from '../src/model/describe.js';
 import { readStore, writeStore, replaceStore, listStore, deleteStore } from '../src/io/store.js';
 import { calcDateRange } from '../commands/mss/code/date_range.js';
-import { applyResponseRewrite, pollUntilReady, executeInterceptFlow } from '../src/engine/intercept_executor.js';
+import { applyResponseRewrite, pollUntilReady, executeInterceptFlow, setPath } from '../src/engine/intercept_executor.js';
 import { iterTriggerTimes, computeMissedJobs, runWithConcurrency, readHeartbeat, writeHeartbeat, loadScheduleEntries, selectDueJobs } from '../src/schedule/daemon.js';
 import { buildBody as buildSendEmailBody } from '../commands/mss/code/send_email_body.js';
 import { derive as deriveConfigFlags } from '../commands/mss/code/config_flags.js';
@@ -1442,6 +1442,12 @@ console.log('date range tests passed.');
     [{ path: 'data.weekly_export_config.export_locales', value: ['en', 'id'] }]);
   assert.deepEqual(JSON.parse(rw).data.weekly_export_config.export_locales, ['en', 'id']);
   assert.equal(applyResponseRewrite('not json', [{ path: 'a', value: 1 }]), 'not json');
+
+  // setPath：正常嵌套写入；原型链键必须抛错（防原型污染），且不得污染 Object.prototype。
+  assert.deepEqual(setPath({}, 'a.b.c', 1), { a: { b: { c: 1 } } });
+  assert.throws(() => setPath({}, '__proto__.polluted', 1), /unsafe key/);
+  assert.throws(() => setPath({}, 'a.constructor.x', 1), /unsafe key/);
+  assert.equal(({}).polluted, undefined);
 
   let n = 0;
   const ready = await pollUntilReady(async () => ({ data: { list: [{ task_id: 'T1', task_status: (++n >= 2 ? 1 : 0) }] } }),

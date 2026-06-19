@@ -85,6 +85,11 @@ export function sessionStatus({ state } = {}) {
 // 打开 headed 浏览器让用户登录，保存 storageState（本地开发辅助；需 playwright）。
 export async function loginAndSaveState({ url, out } = {}) {
   if (!url) throw new Error('session login 需要 --url <登录页地址>');
+  // headed 登录靠回车确认 → 必须可交互。容器/headless/管道场景下 stdin 非 TTY，
+  // 此时直接报错而非挂死等待 EOF（部署形态是 headless 容器，禁止假设交互式终端）。
+  if (!process.stdin.isTTY) {
+    throw new Error('session login 需要交互式终端（headed 本地环境）；容器/非 TTY 下不可用，请改用 session import-cookie 导入登录态');
+  }
   const target = out || defaultStatePath();
   let pw;
   try {

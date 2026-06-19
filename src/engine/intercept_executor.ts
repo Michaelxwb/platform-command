@@ -22,8 +22,12 @@ export function getPath(value, path) {
   return normalized.split('.').reduce((cur, part) => (cur == null ? undefined : cur[part]), value);
 }
 
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 export function setPath(obj, path, value) {
   const parts = String(path).split('.');
+  // 拒绝原型链键：rewrite 规格虽来自命令 JSON，但仍杜绝被改写体借 __proto__ 污染原型。
+  if (parts.some((p) => UNSAFE_KEYS.has(p))) throw new Error(`setPath: unsafe key in path "${path}"`);
   let cur = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     if (cur[parts[i]] == null || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
