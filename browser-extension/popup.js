@@ -31,7 +31,12 @@ async function render() {
   $('lastExport').textContent = last
     ? `最近导出：${fmtTime(last.at)} · ${last.count} cookies`
     : '尚未导出（登录目标站点或点「立即导出」）';
-  $('outPath').innerHTML = `输出：<code>~/Downloads/${filename}</code>`;
+  // 路径提示按系统显示：Windows 用 %USERPROFILE%\Downloads\ 反斜杠，mac/linux 用 ~/Downloads/。
+  const info = await chrome.runtime.getPlatformInfo();
+  const shown = info.os === 'win'
+    ? `%USERPROFILE%\\Downloads\\${filename.replace(/\//g, '\\')}`
+    : `~/Downloads/${filename}`;
+  $('outPath').innerHTML = `输出：<code>${shown}</code>`;
 }
 
 async function save() {

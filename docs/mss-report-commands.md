@@ -84,7 +84,7 @@ soar 有多套实例（海外 `sea`、国内 `cn`），命令代码不分叉。h
 
 所有调 soar 的命令吃同一份登录态 = storageState（等价 skill 的 cookies.txt）：非导出经 node fetch 注入 Cookie 头，导出经 Playwright 注入同一会话。
 
-> **最省事：用配套浏览器扩展（推荐）**。仓库 `browser-extension/` 是配套的会话导出扩展——加载后在弹窗配好监控域名，登录目标站点即自动把 storageState 写到 `~/Downloads/platform-command/storage-state.json`（含 httpOnly 的 soc-token/csrf）。把 `PLATFORM_COMMAND_STORAGE_STATE` 指过去即可，无需手动 import-cookie。详见 `browser-extension/README.md`。
+> **最省事：用配套浏览器扩展（推荐）**。仓库 `browser-extension/` 是配套的会话导出扩展——加载后在弹窗配好监控域名，登录目标站点即自动把 storageState 写到**下载目录**下 `platform-command/storage-state.json`（含 httpOnly 的 soc-token/csrf；mac/Linux 在 `~/Downloads/`、Windows 在 `%USERPROFILE%\Downloads\`）。把 `PLATFORM_COMMAND_STORAGE_STATE` 指过去即可，无需手动 import-cookie。详见 `browser-extension/README.md`。
 
 不想用扩展时，框架也提供平台无关的 `session` 子命令：
 

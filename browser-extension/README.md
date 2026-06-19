@@ -15,12 +15,23 @@
 
 ## 接到 platform-command
 
-把 MCP server（或 CLI）所在进程的环境变量指向导出的文件：
+导出文件落在**各系统的下载目录**下（扩展用 Chrome downloads，`/` 会自动转成系统分隔符，跨平台一致）：
+- macOS / Linux：`~/Downloads/platform-command/storage-state.json`
+- Windows：`C:\Users\<你>\Downloads\platform-command\storage-state.json`
 
+把 MCP server（或 CLI）所在进程的环境变量指向该文件：
+
+```bash
+# macOS / Linux
+export PLATFORM_COMMAND_USER_ID=local
+export PLATFORM_COMMAND_STORAGE_STATE="$HOME/Downloads/platform-command/storage-state.json"
 ```
-PLATFORM_COMMAND_USER_ID=local
-PLATFORM_COMMAND_STORAGE_STATE=$HOME/Downloads/platform-command/storage-state.json
+```powershell
+# Windows (PowerShell)
+$env:PLATFORM_COMMAND_USER_ID = "local"
+$env:PLATFORM_COMMAND_STORAGE_STATE = "$env:USERPROFILE\Downloads\platform-command\storage-state.json"
 ```
+> 在 MCP 客户端里更常见的是写进该 server 配置的 `env` 字段（用上面的绝对路径）。
 
 之后在浏览器登录目标平台 → 扩展自动把会话写进该文件 → MCP 里调 `mss.*` 等命令即真实执行。
 
