@@ -2,6 +2,8 @@
 
 通过 `platform-command` CLI 操作 MSS 海外报告平台。完整说明见 `docs/mss-report-commands.md`；本文件是必守的执行规范，冲突以本文件为准。
 
+> 适用范围：本文件供**本地/调试沙箱**的编码 agent 读取，**不进容器**（不在 npm 包，Dockerfile 不拷）。容器内 agent 的必守子集已蒸馏进 `deploy/ga/platform_command_sop.md` 的「MSS 编排铁律」段——**改动下方铁律时，请同步更新那份 SOP**，避免两处漂移。
+
 ## 一套代码、一套配置，两环境
 - **生产**：Docker 容器（headless），镜像自带 chromium，导出命令开箱即用。**周/月定时导出由容器内 GA 调度框架驱动**（建 `sche_tasks` 任务调 `mss.export_weekly`/`mss.export_monthly`），**不依赖** platform-command 自带 daemon（那是本地/独立部署形态）。
 - **调试沙箱**：本身直连 soar（**不用代理**）。与生产唯一差异：沙箱缺 bundled chromium，**手动补一次**（见下）。

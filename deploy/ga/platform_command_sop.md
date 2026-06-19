@@ -86,6 +86,18 @@ MSS 命令（`mss.export_weekly`/`export_monthly`/`send_email`/`search_company`/
   **不要执行 `platform-command daemon start`**——那是本地/独立部署形态，容器内的定时一律走 GA scheduled_task。
   （`mss.set_schedule` 只把排期写进业务 store 做记录，不在容器内自动触发。）
 
+### MSS 编排铁律（命令层挡不住、靠你遵守）
+
+1. **未经用户明确要求，禁止自动触发**导出 / 发邮件（`send_email`）/ 同步 portal（`sync_portal`）——这些是对外动作，必须用户点名才做。
+2. **导出必须明确 weekly 还是 monthly**；用户没说清就先问，别替他假设。
+3. **客户名多候选时让用户选定**，禁止替选或自猜 `companyId`；`companyId` 一律用 `mss.search_company` 查得，不臆造。
+4. **同一客户串行**操作；"批量"指跨不同客户并发，单个客户内仍按序来。
+5. **邮箱增删只走 `mss.update_email`**，禁止用 `update_config` 改邮箱。收件人最终 = 平台邮箱 + 本地 added − removed，不要自己另算。
+6. **定时时间须 `HH:MM` 24h 制**；解析存疑先与用户确认，不擅自填。
+7. 纯业务交流**只用业务语言**，不向用户暴露内部字段名 / task_id / 技术细节。
+
+> 完整 MSS 规范见源码仓库 `AGENTS.md`（本地/开发侧）；以上为容器内必守的精简子集。
+
 ## 文件路径约定
 
 - 导出/输出文件写到 `/data/platform/output/` 下（其他路径会被沙箱拒绝）。
