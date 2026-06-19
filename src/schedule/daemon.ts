@@ -173,9 +173,27 @@ export async function webhookNotifier(text, webhookUrl = process.env.PLATFORM_CO
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// 各平台可监听的「停止」信号：Windows 无 SIGTERM（监听了也不触发），用 SIGINT/SIGBREAK；
+// POSIX 用 SIGTERM/SIGINT。SIGHUP 两端都挂（POSIX 终端断开；Windows 由 Node 模拟）。
+export function stopSignalsForPlatform(platform = process.platform) {
+  return platform === 'win32'
+    ? ['SIGINT', 'SIGBREAK', 'SIGHUP']
+    : ['SIGTERM', 'SIGINT', 'SIGHUP'];
+}
+
+function installSignalHandlers(cleanup) {
+  for (const sig of stopSignalsForPlatform()) {
+    try { process.on(sig, () => { cleanup(); process.exit(0); }); } catch { /* 平台不支持该信号则跳过 */ }
+  }
+  // 正常退出兜底（同步删 PID）；强制 kill / SIGKILL 不触发，但 stopDaemon 自身也会删 PID 文件。
+  process.on('exit', cleanup);
+}
+
 export function stopDaemon(pidFile = PID_FILE) {
   const st = daemonStatus(pidFile);
   if (!st.running) return { stopped: false, reason: 'not running' };
+  // POSIX：SIGTERM 让目标进程跑清理后退出；Windows：无真信号，Node 直接 TerminateProcess（硬杀），
+  // 故无论哪种，这里都自删 PID 文件兜底（目标被硬杀时不会自清）。
   try { process.kill(st.pid, 'SIGTERM'); } catch { /* already gone */ }
   try { fs.rmSync(pidFile); } catch { /* ignore */ }
   return { stopped: true, pid: st.pid };
@@ -197,8 +215,7 @@ export async function startDaemon(options = {}) {
   fs.mkdirSync(DAEMON_DIR, { recursive: true });
   fs.writeFileSync(PID_FILE, String(process.pid));
   const cleanup = () => { try { fs.rmSync(PID_FILE); } catch { /* ignore */ } };
-  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
-  process.on('SIGINT', () => { cleanup(); process.exit(0); });
+  installSignalHandlers(cleanup); // 跨平台信号 + exit 兜底（Windows 用 SIGINT/SIGBREAK）
 
   // 漏执行回放（停机期间应触发的任务）
   const lastActive = readHeartbeat();

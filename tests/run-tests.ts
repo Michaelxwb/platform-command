@@ -23,7 +23,7 @@ import { readStore, writeStore, replaceStore, listStore, deleteStore } from '../
 import { calcDateRange } from '../commands/mss/code/date_range.js';
 import { applyResponseRewrite, pollUntilReady, executeInterceptFlow, setPath } from '../src/engine/intercept_executor.js';
 import { resolveSiteOrigin, applySiteOrigin } from '../src/engine/site.js';
-import { iterTriggerTimes, computeMissedJobs, runWithConcurrency, readHeartbeat, writeHeartbeat, loadScheduleEntries, selectDueJobs } from '../src/schedule/daemon.js';
+import { iterTriggerTimes, computeMissedJobs, runWithConcurrency, readHeartbeat, writeHeartbeat, loadScheduleEntries, selectDueJobs, stopSignalsForPlatform } from '../src/schedule/daemon.js';
 import { buildBody as buildSendEmailBody } from '../commands/mss/code/send_email_body.js';
 import { derive as deriveConfigFlags } from '../commands/mss/code/config_flags.js';
 import { buildBody as buildSyncPortalBody } from '../commands/mss/code/sync_portal_body.js';
@@ -1634,6 +1634,21 @@ console.log('intercept flow orchestration tests passed.');
   assert.equal(due2.length, 0, 'pending job must not be re-enqueued');
 }
 console.log('daemon core tests passed.');
+
+// --- daemon 停止信号跨平台选择（Windows 无 SIGTERM）---
+{
+  const win = stopSignalsForPlatform('win32');
+  assert.ok(win.includes('SIGINT'), 'Windows 必须含 SIGINT');
+  assert.ok(win.includes('SIGBREAK'), 'Windows 用 SIGBREAK（Ctrl+Break）');
+  assert.ok(!win.includes('SIGTERM'), 'Windows 不监听 SIGTERM（不会触发）');
+
+  for (const posix of ['linux', 'darwin']) {
+    const sigs = stopSignalsForPlatform(posix);
+    assert.ok(sigs.includes('SIGTERM') && sigs.includes('SIGINT'), `${posix} 含 SIGTERM/SIGINT`);
+    assert.ok(!sigs.includes('SIGBREAK'), `${posix} 不含 Windows 专属 SIGBREAK`);
+  }
+}
+console.log('daemon stop-signal platform selection tests passed.');
 
 // --- TASK-014 支撑：http_json extract 列表取单项（fromList/where/pick） ---
 {
