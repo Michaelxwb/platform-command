@@ -1,0 +1,76 @@
+{
+  "name": "mss.download_report",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：下载已生成的报告文件（GET report_download?task_id，纯 node 直连，不用浏览器）。在 report_status 显示 task_status==1 后调用。响应为文件流时按 content-disposition 文件名落地到本地；若响应是 JSON（下载链接/错误）则原样回传不落地，交 agent 判断。task_id 由 generate_report 响应 data._id 取得（agent 经 chrome-mcp 抓包）。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台会话；401/403 时刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-18",
+    "provider": "HAR 确认：GET /order/v1/report/report_download?task_id=<task_id> 直接返回报告文件流。",
+    "notes": [
+      "下载按 task_id 直取，与 generate_report 返回的 data._id 一致。",
+      "响应文件名来自 content-disposition；落地路径由 output.path 决定（默认 OUTPUT_DIR）。"
+    ]
+  },
+  "parameters": {
+    "taskId": { "type": "string", "required": true, "description": "报告任务 ID（=generate_report 响应 data._id；report_status 行 task_id）。" },
+    "outputPath": { "type": "string", "required": false, "default": "", "description": "可选落地路径；留空用默认（OUTPUT_DIR/报告文件名）。" }
+  },
+  "steps": [
+    {
+      "id": "download",
+      "type": "manual",
+      "manual": "GET /order/v1/report/report_download?task_id=<taskId> 取文件流，按 content-disposition 文件名落地（由 dataSource + download 能力执行）。"
+    }
+  ],
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 下载报告 {{params.taskId}}",
+    "steps": [
+      {
+        "id": "download",
+        "request": {
+          "method": "GET",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/report_download",
+          "query": { "task_id": "{{params.taskId}}" },
+          "headers": { "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "responseType": "binary"
+        }
+      }
+    ]
+  },
+  "output": {
+    "capability": "download",
+    "path": "mss-report-{{params.taskId}}"
+  },
+  "successCriteria": [
+    "GET report_download?task_id 取回文件流并按 content-disposition 文件名落地，返回 outputPath。",
+    "响应非二进制时原样回传不静默。"
+  ],
+  "checks": [
+    "dry-run 展示 GET report_download 计划，task_id 已替换；真实执行需 storageState 会话。"
+  ],
+  "failureCases": [
+    "未登录或会话过期（401/403）。",
+    "task_id 不存在或报告未就绪（task_status!=1）时平台返回错误，原样回传。"
+  ],
+  "naturalLanguage": {
+    "intent": "下载已生成的报告文件。",
+    "aliases": ["下载报告", "取报告文件"],
+    "match": { "any": ["下载"], "verbs": ["下载", "取"] },
+    "extract": {
+      "taskId": { "type": "after", "pattern": "(?:task_?id|任务id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9]+)" }
+    },
+    "examples": ["下载 task_id 6a338028 的报告"]
+  }
+}

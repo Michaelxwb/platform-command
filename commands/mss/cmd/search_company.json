@@ -1,0 +1,117 @@
+{
+  "name": "mss.search_company",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：按客户名称模糊搜索客户，返回 company_id 与 company_name 列表（report_customer 接口，自动分页）。客户名称由用户提供，模糊匹配由平台处理；返回多个时交给用户/agent 选择，不得自行猜测 company_id（RULE-02）。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台浏览器会话；401/403 或返回非 0 code 时请刷新登录态（Cookie 有效期约 6 小时），不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/shared/api.py:search_company_id",
+    "notes": [
+      "搜索接口：POST /order/v1/report/report_customer，body={keyword, offset, limit}，返回 {code:0, data:{total, list:[{company_id, company_name}]}}。",
+      "鉴权：会话 Cookie（httpOnly）+ 请求头 X-Csrftoken（取自 csrf_token cookie）。",
+      "自动分页：limit 单页 100，offset 递增直至累计达到 total。"
+    ]
+  },
+  "parameters": {
+    "keyword": {
+      "type": "string",
+      "required": true,
+      "description": "客户名称模糊搜索关键词。留空会返回全部客户（分页）。"
+    },
+    "limit": {
+      "type": "number",
+      "required": false,
+      "default": 200,
+      "description": "最多返回的客户条数（自动翻页累计）。"
+    }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 客户搜索：{{params.keyword}}",
+    "steps": [
+      {
+        "id": "companies",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/report_customer",
+          "headers": {
+            "content-type": "application/json",
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "x-requested-with": "XMLHttpRequest",
+            "x-csrftoken": "{{session.csrfToken}}"
+          },
+          "body": {
+            "keyword": "{{params.keyword}}",
+            "offset": "{{cursor.offset}}",
+            "limit": 100
+          },
+          "expect": {
+            "bodyCode": 0
+          }
+        },
+        "collect": {
+          "limit": "{{params.limit}}",
+          "offsetParam": true,
+          "pageSize": 100,
+          "maxPages": 50,
+          "itemsPath": "data.list",
+          "totalPath": "data.total",
+          "map": [
+            { "key": "companyId", "path": "company_id" },
+            { "key": "companyName", "path": "company_name" }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "search",
+      "type": "manual",
+      "manual": "POST /order/v1/report/report_customer 按 keyword 分页搜索，以 return_json 返回 companyId/companyName 列表（由 dataSource + output.capability 执行）。"
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 客户搜索结果：{{params.keyword}}"
+  },
+  "successCriteria": [
+    "能按 keyword 模糊搜索客户并返回 company_id / company_name。",
+    "自动翻页累计到 limit 或 total 为止。",
+    "只读 read-only，不含任何写操作。"
+  ],
+  "checks": [
+    "dry-run 能展示 POST /order/v1/report/report_customer 计划，body.keyword 已替换。",
+    "返回 return_json，rows 含 companyId / companyName。"
+  ],
+  "failureCases": [
+    "未登录或会话过期，接口 401/403 或返回非 0 code。",
+    "缺少 X-Csrftoken 头或 csrf_token 与会话不匹配。"
+  ],
+  "naturalLanguage": {
+    "intent": "按客户名称模糊搜索 MSS 客户，返回 company_id。",
+    "aliases": ["搜客户", "查客户ID", "MSS 客户搜索"],
+    "match": {
+      "any": ["客户", "company"],
+      "verbs": ["搜索", "查询", "查找", "匹配"]
+    },
+    "extract": {
+      "keyword": {
+        "type": "after",
+        "pattern": "(?:客户|company)\\s*(?:名称?|name)?\\s*(?:是|为|=|:|：|叫)?\\s*([^，。；,;]+)"
+      }
+    },
+    "examples": ["搜索 MSS 客户 人民日报", "查一下客户 XX 的 company_id"]
+  }
+}

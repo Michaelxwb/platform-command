@@ -1,0 +1,97 @@
+{
+  "name": "mss.get_locale",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：查询某客户的小语种配置（report config GET 接口，后台固定 report_type=12）。返回 local_locale（id=印尼语/de=德语/th=泰语/空）等，供 agent 展示或为同步 portal 拼 report_version。只读。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台浏览器会话；401/403 或返回非 0 code 时请刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/shared/api.py:get_locale_config",
+    "notes": [
+      "接口：POST /order/v1/report/config?_method=GET，body={company_id, report_type:12}，返回 {code:0, data:{local_locale, channel_id, module_list, logo, ...}}。",
+      "后台忽略 report_type，固定传 12 即可；local_locale: id/de/th/空。"
+    ]
+  },
+  "parameters": {
+    "companyId": {
+      "type": "string",
+      "required": true,
+      "description": "客户 ID（由 mss.search_company 取得）。"
+    }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 小语种配置：{{params.companyId}}",
+    "steps": [
+      {
+        "id": "locale",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/config?_method=GET",
+          "headers": {
+            "content-type": "application/json",
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "x-requested-with": "XMLHttpRequest",
+            "x-csrftoken": "{{session.csrfToken}}"
+          },
+          "body": {
+            "company_id": "{{params.companyId}}",
+            "report_type": 12
+          },
+          "expect": {
+            "bodyCode": 0
+          }
+        },
+        "extract": {
+          "localLocale": "data.local_locale",
+          "channelId": "data.channel_id"
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "get",
+      "type": "manual",
+      "manual": "POST /order/v1/report/config?_method=GET 读取小语种配置，以 return_json 返回 localLocale 等（由 dataSource + output.capability 执行）。"
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 小语种配置：{{params.companyId}}"
+  },
+  "successCriteria": [
+    "能返回客户的 local_locale 等小语种配置字段。",
+    "只读，不含写操作。"
+  ],
+  "checks": [
+    "dry-run 展示 POST /order/v1/report/config?_method=GET 计划，body.company_id 已替换。",
+    "meta 含 localLocale。"
+  ],
+  "failureCases": ["未登录或会话过期 401/403 或非 0 code。"],
+  "naturalLanguage": {
+    "intent": "查询 MSS 客户小语种配置。",
+    "aliases": ["查小语种", "小语种配置"],
+    "match": {
+      "all": ["小语种"],
+      "verbs": ["查询", "查看"]
+    },
+    "extract": {
+      "companyId": {
+        "type": "after",
+        "pattern": "(?:company_?id|客户id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)"
+      }
+    },
+    "examples": ["查客户 123 的小语种配置"]
+  }
+}

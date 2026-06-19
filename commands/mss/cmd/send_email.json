@@ -1,0 +1,130 @@
+{
+  "name": "mss.send_email",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：发送报告邮件（send_email 接口）。多步取 subject/header/push_content/sign/company_name/attachments，再经 code/send_email_body.js 拼 payload 发送。收件人 recipient/cc/bcc 作为参数传入（= 平台邮箱 + store added − removed，由 agent 用 display_config + 平台邮箱解析后传入，RULE-06）。task_id 由用户提供（RULE-02）。会真实发信，高风险。",
+  "riskLevel": "high",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台浏览器会话；401/403 或非 0 code 时刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/send_email/send_email.py:do_send_email",
+    "notes": [
+      "取值接口：actual_data(email_theme/email_header/report_push_content/email_sign/mss_company_name) + report/attachments。",
+      "payload：accepter/ccer/bccer=[{_id,value}]，email_content=header+push+sign，attachment_icon 按 weekly/monthly。",
+      "payload 组装由 code/send_email_body.js（body 变换钩子）完成；收件人来自参数。"
+    ]
+  },
+  "parameters": {
+    "taskId": { "type": "string", "required": true, "description": "报告任务 ID（用户提供）。" },
+    "companyId": { "type": "string", "required": true, "description": "客户 ID。" },
+    "reportType": { "type": "string", "required": false, "default": "weekly", "enum": ["weekly", "monthly"], "description": "报告类型，决定 attachment_icon。" },
+    "emailsAdded": { "type": "object", "required": false, "default": {}, "description": "本地新增邮箱 delta，如 {\"recipient\":[\"a@x.com\"],\"cc\":[],\"bcc\":[]}（来自 store 配置 weekly/monthly_emails_added）。" },
+    "emailsRemoved": { "type": "object", "required": false, "default": {}, "description": "本地删除邮箱 delta（来自 store weekly/monthly_emails_removed）。" },
+    "recipient": { "type": "array", "required": false, "default": [], "description": "显式收件人覆盖；留空则按 平台邮箱 + added − removed 自动解析（RULE-06）。" },
+    "cc": { "type": "array", "required": false, "default": [], "description": "显式抄送覆盖。" },
+    "bcc": { "type": "array", "required": false, "default": [], "description": "显式密送覆盖。" }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 发送邮件：{{params.taskId}}",
+    "steps": [
+      {
+        "id": "subject",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "param_list": [{ "param_code": "email_theme", "other_param": { "report_task_id": "{{params.taskId}}" } }] }, "expect": { "bodyCode": 0 } },
+        "extract": { "subject": "data.list.0.actual_data.show_value" }
+      },
+      {
+        "id": "header",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "param_list": [{ "param_code": "email_header", "other_param": { "company_id": "{{params.companyId}}" } }] }, "expect": { "bodyCode": 0 } },
+        "extract": { "header": "data.list.0.actual_data.show_value" }
+      },
+      {
+        "id": "push",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "param_list": [{ "param_code": "report_push_content", "other_param": { "report_task_id": "{{params.taskId}}" } }] }, "expect": { "bodyCode": 0 } },
+        "extract": { "pushContent": "data.list.0.actual_data.show_value" }
+      },
+      {
+        "id": "sign",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "param_list": [{ "param_code": "email_sign", "other_param": {} }] }, "expect": { "bodyCode": 0 } },
+        "extract": { "sign": "data.list.0.actual_data.show_value" }
+      },
+      {
+        "id": "companyName",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "param_list": [{ "param_code": "mss_company_name", "other_param": { "company_id": "{{params.companyId}}" } }] }, "expect": { "bodyCode": 0 } },
+        "extract": { "companyName": "data.list.0.actual_data.show_value" }
+      },
+      {
+        "id": "attachments",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/report/attachments?_method=POST", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "_id": "{{params.taskId}}" }, "expect": { "bodyCode": 0 } },
+        "extract": { "files": "data.file" }
+      },
+      {
+        "id": "platRecipient",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "param_list": [{ "param_code": "email_receiver", "other_param": { "company_id": "{{params.companyId}}" } }] }, "expect": { "bodyCode": 0 } },
+        "extract": { "list": "data.list.0.actual_data" }
+      },
+      {
+        "id": "platCc",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "param_list": [{ "param_code": "email_carbon_copyist", "other_param": { "company_id": "{{params.companyId}}" } }] }, "expect": { "bodyCode": 0 } },
+        "extract": { "list": "data.list.0.actual_data" }
+      },
+      {
+        "id": "platBcc",
+        "request": { "method": "POST", "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data", "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" }, "body": { "param_list": [{ "param_code": "email_blind_carbon_copyist", "other_param": { "company_id": "{{params.companyId}}" } }] }, "expect": { "bodyCode": 0 } },
+        "extract": { "list": "data.list.0.actual_data" }
+      },
+      {
+        "id": "send",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/send_email",
+          "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "body": {},
+          "bodyBuilder": { "module": "./code/send_email_body.js", "export": "buildBody" },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": { "code": "code", "message": "msg" }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "send",
+      "type": "manual",
+      "manual": "取 subject/header/push/sign/companyName/attachments → send_email_body.js 拼 payload → POST send_email（由 dataSource + bodyBuilder 执行）。收件人来自参数。"
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 发送邮件结果：{{params.taskId}}"
+  },
+  "successCriteria": [
+    "能拼装完整邮件 payload（收件人/正文/附件/icon）并发送，code=0。",
+    "收件人为空时报错回传，不发送。"
+  ],
+  "checks": [
+    "dry-run 展示取值步骤 + send 步骤（带 bodyBuilder）。"
+  ],
+  "failureCases": [
+    "未登录或会话过期 401/403 或非 0 code。",
+    "recipient 为空。"
+  ],
+  "naturalLanguage": {
+    "intent": "发送报告邮件。",
+    "aliases": ["发邮件", "发送邮件", "把报告发到邮箱"],
+    "match": { "any": ["邮件", "邮箱"], "verbs": ["发送", "发"] },
+    "extract": {
+      "taskId": { "type": "after", "pattern": "task_?id\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)" }
+    },
+    "examples": ["把 task_id=abc 的报告发到邮箱"]
+  }
+}

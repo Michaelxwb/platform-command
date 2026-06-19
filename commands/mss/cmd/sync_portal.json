@@ -1,0 +1,115 @@
+{
+  "name": "mss.sync_portal",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：将报告同步到 portal（sync_soc 接口）。task_id 必须由用户提供（RULE-02），report_version 为小语种版本数组（默认 [\"en\"]，agent 可先用 mss.get_locale 拼 [locale,\"en\"]）。写操作。",
+  "riskLevel": "medium",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台浏览器会话；401/403 或非 0 code 时刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/shared/api.py:sync_portal",
+    "notes": [
+      "接口：POST /order/v1/report/sync_soc，body={report_type, task_id, report_version}，返回 {code:0}。",
+      "report_type：2=周报 / 3=月报；report_version：小语种数组，如 [\"id\",\"en\"]，默认 [\"en\"]。"
+    ]
+  },
+  "parameters": {
+    "taskId": {
+      "type": "string",
+      "required": true,
+      "description": "报告任务 ID（由用户提供，命令不猜测）。"
+    },
+    "reportType": {
+      "type": "number",
+      "required": false,
+      "default": 2,
+      "enum": [2, 3],
+      "description": "报告类型：2=周报 / 3=月报。"
+    },
+    "reportVersion": {
+      "type": "array",
+      "required": false,
+      "default": [],
+      "description": "显式小语种版本数组覆盖，如 [\"id\",\"en\"]；留空则按 locale 自动拼（locale 非空→[locale,en]，否则[en]）。"
+    },
+    "locale": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "平台小语种代码（id/de/th/空）；reportVersion 留空时据此拼 report_version。"
+    }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 同步 portal：{{params.taskId}}",
+    "steps": [
+      {
+        "id": "sync",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/sync_soc",
+          "headers": {
+            "content-type": "application/json",
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "x-requested-with": "XMLHttpRequest",
+            "x-csrftoken": "{{session.csrfToken}}"
+          },
+          "body": {},
+          "bodyBuilder": { "module": "./code/sync_portal_body.js", "export": "buildBody" },
+          "expect": {
+            "bodyCode": 0
+          }
+        },
+        "extract": {
+          "code": "code",
+          "message": "msg"
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "sync",
+      "type": "manual",
+      "manual": "POST /order/v1/report/sync_soc 同步报告到 portal（由 dataSource + output.capability 执行），bodyCode!=0 时原样回传错误。"
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 同步 portal 结果：{{params.taskId}}"
+  },
+  "successCriteria": [
+    "能以指定 task_id 与 report_version 调用 sync_soc 并校验 code=0。"
+  ],
+  "checks": [
+    "dry-run 展示 POST /order/v1/report/sync_soc 计划，body.task_id/report_type/report_version 已替换。"
+  ],
+  "failureCases": [
+    "未登录或会话过期 401/403 或非 0 code。",
+    "task_id 不存在或报告未导出完成。"
+  ],
+  "naturalLanguage": {
+    "intent": "把指定报告同步到 portal。",
+    "aliases": ["同步portal", "同步到portal", "sync portal"],
+    "match": {
+      "any": ["portal"],
+      "verbs": ["同步"]
+    },
+    "extract": {
+      "taskId": {
+        "type": "after",
+        "pattern": "task_?id\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)"
+      }
+    },
+    "examples": ["把 task_id=abc 的报告同步到 portal"]
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "module_list": [
+    {
+      "module_id": "mdr-monthly-report-prefix-overview",
+      "select": true,
+      "label": "Overview",
+      "children": [
+        {
+          "module_id": "mdr-monthly-report-prefix-overview_security_rating",
+          "select": true,
+          "label": "Security Rating"
+        },
+        {
+          "module_id": "mdr-monthly-report-prefix-overview_log_reduction",
+          "select": true,
+          "label": "Log Reduction"
+        },
+        {
+          "module_id": "mdr-monthly-report-prefix-overview_detection_and_response",
+          "select": true,
+          "label": "Detection and Response",
+          "children": [
+            {
+              "module_id": "mdr-monthly-report-prefix-overview_detection_and_response_log_monitor",
+              "select": true,
+              "label": "Logs"
+            },
+            {
+              "module_id": "mdr-monthly-report-prefix-overview_detection_and_response_risk_analyze_response",
+              "select": true,
+              "label": "Incidents & Threats (Managed Assets)"
+            },
+            {
+              "module_id": "mdr-monthly-report-prefix-overview_detection_and_response_out_service_events",
+              "select": true,
+              "label": "Incidents (Unmanaged Assets)"
+            }
+          ]
+        },
+        {
+          "module_id": "mdr-monthly-report-prefix-overview_prevent_measures",
+          "select": true,
+          "label": "Policy Check"
+        }
+      ]
+    },
+    {
+      "module_id": "mdr-monthly-report-prefix-security_operations_details",
+      "select": true,
+      "label": "Security Operations",
+      "children": [
+        {
+          "module_id": "mdr-monthly-report-prefix-in_service_threats_attacks",
+          "select": true,
+          "label": "Inbound Attacks",
+          "children": [
+            {
+              "module_id": "mdr-monthly-report-prefix-in_service_threats_attack_trend",
+              "select": true,
+              "label": "Attack Trend",
+              "children": [
+                {
+                  "module_id": "mdr-monthly-report-prefix-in_service_threats_attack_trend_attack_location",
+                  "select": true,
+                  "label": "Attacker Location"
+                },
+                {
+                  "module_id": "mdr-monthly-report-prefix-in_service_threats_attack_trend_attack_type",
+                  "select": true,
+                  "label": "Attack Type"
+                }
+              ]
+            },
+            {
+              "module_id": "mdr-monthly-report-prefix-in_service_threats_attack_ranking",
+              "select": true,
+              "label": "Attack Ranking",
+              "children": [
+                {
+                  "module_id": "mdr-monthly-report-prefix-in_service_threats_attack_ranking_top5_attacker_ip",
+                  "select": true,
+                  "label": "Top 5 Attacker IPs"
+                },
+                {
+                  "module_id": "mdr-monthly-report-prefix-in_service_threats_attack_ranking_top5_attacked_ip",
+                  "select": true,
+                  "label": "Top 5 Target IPs"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "module_id": "mdr-monthly-report-prefix-in_service_events",
+          "select": true,
+          "label": "Incidents & Threats",
+          "children": [
+            {
+              "module_id": "mdr-monthly-report-prefix-in_service_events_overview",
+              "select": true,
+              "label": "Overview"
+            },
+            {
+              "module_id": "mdr-monthly-report-prefix-in_service_assets_attention_assets",
+              "select": true,
+              "label": "Assets Requiring Attention"
+            },
+            {
+              "module_id": "mdr-monthly-report-prefix-in_service_events_example",
+              "select": true,
+              "label": "Incidents & Threats",
+              "children": [
+                {
+                  "module_id": "mdr-monthly-report-prefix-in_service",
+                  "select": true,
+                  "label": "Managed",
+                  "children": [
+                    {
+                      "module_id": "mdr-monthly-report-prefix-in_service_current_new",
+                      "select": true,
+                      "label": "New"
+                    },
+                    {
+                      "module_id": "mdr-monthly-report-prefix-in_service_legacy",
+                      "select": true,
+                      "label": "Previous"
+                    }
+                  ]
+                },
+                {
+                  "module_id": "mdr-monthly-report-prefix-out_service",
+                  "select": true,
+                  "label": "Unmanaged",
+                  "children": [
+                    {
+                      "module_id": "mdr-monthly-report-prefix-out_service_current_new",
+                      "select": true,
+                      "label": "New"
+                    },
+                    {
+                      "module_id": "mdr-monthly-report-prefix-out_service_legacy",
+                      "select": true,
+                      "label": "Previous"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "module_id": "mdr-monthly-report-prefix-preventive_measure",
+      "select": true,
+      "label": "Policy Check"
+    },
+    {
+      "module_id": "mdr-monthly-report-prefix-next_plan",
+      "select": true,
+      "label": "Next Steps"
+    }
+  ]
+}

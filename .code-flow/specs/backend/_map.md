@@ -50,3 +50,21 @@ Request → Middleware(auth/log) → Router → Handler(API)
 - 新增表 → `models/` 定义模型 + `migrations/` 加迁移脚本
 - 错误处理 → 抛业务异常类，由中间件统一转 HTTP 响应
 - 配置项 → `config/` 集中管理，禁止散落 `os.environ`/`process.env`
+
+## Platform-command 引擎（本仓库实际结构，覆盖上面的通用模板）
+
+> 本仓库 src 是分层执行引擎（非 api/service/model）。导出链路关键模块：
+
+| File | Purpose |
+|------|---------|
+| `src/engine/execute.ts` | `getExecutionCapability`：按命令形态选引擎（interceptFlow→ui_intercept / dataSource+output→auto_capability / store→store_op / workflow） |
+| `src/engine/intercept_executor.ts` | 浏览器拦截引擎（interceptFlow）：urlBuilder 拼导出 URL → `page.route` 改写 `get_history_pwd.export_locales`（注入小语种）→ 抓 `generate_report` 的 task_id → `pollUntilReady` 轮询 `report_status` 至 `task_status==1` |
+| `src/engine/capabilities.ts` | auto_capability；`resolveAdapter`（node_http / webbridge）；`download` 能力（存二进制响应到文件） |
+| `src/engine/data_sources.ts` | http_json 取数；`responseType:"binary"` 二进制下载 + `parseDownloadFilename` |
+| `src/adapter/playwright_adapter.ts` | `withPlaywrightPage` / `fetchViaPlaywright`；`chromeLaunchOptions`（读 `PLATFORM_COMMAND_CHROME_PATH`/`HEADLESS`/`CHROME_CHANNEL`） |
+| `commands/mss/cmd/export_*.json` + `commands/mss/code/*.js` | MSS 导出命令 + command-local 钩子（export_url / export_locales / …） |
+
+### interceptFlow 导出 — 维护必读
+- **一套代码、两环境，仅差"补浏览器"**：soar 是 aTrust 零信任内网。生产 Docker 镜像自带 chromium，全自动（含 daemon 定时）；调试沙箱直连 soar（**不用代理**）但无 bundled chromium——把 `chromium-1223` 拷进共享的 `<项目>/.pw-browsers/` 并设 `PLAYWRIGHT_BROWSERS_PATH` 即可。**不用 managed Chrome**（`executablePath` 指向「MSS研发」Chrome 实测不稳）、不用 chrome-mcp。
+- **capture task_id 易超时（已修）**：`generate_report` 响应可能因 SPA/worker/`resp.json()` 时序没被 `page.on('response')` 接住，导致旧版死等 `waitMs` 超时。`pollUntilReady` 已加**快照差集兜底**：触发前对 `report_status` 打 task_id 快照（`excludeIds`），capture 没抓到 task_id 时清空 `matchValue`、只认"快照外新增 + `task_status==1`"的行并回填其 task_id——截没截到都能拿到，不再死等。response 监听已在 `goto` 之前挂好。
+- **小语种**为前端 i18n 静态资源（`/ui-report/static/remote/<code>/`，code=th/id/de/it…），**无后端 API**；靠 `page.route` 改写 `export_locales=[en,<code>]`（`export_locales.js`）注入。`mss.set_locale` 设的是 `local_locale`（客户报告语种配置），与导出语种无关，勿混用。

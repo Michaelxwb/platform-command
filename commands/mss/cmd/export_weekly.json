@@ -1,0 +1,84 @@
+{
+  "name": "mss.export_weekly",
+  "platform": "mss",
+  "description": "MSS 周报业务命令（workflow 组合）：读配置 → 取模板 → 取小语种 → 导出 → 按配置开关同步 portal。report_check=true 时停在人工检查不走下游。供 daemon 定时调用或 agent 手动触发。参数仅 companyId（其余由组合内子命令解析）。注：自动发邮件因收件人需平台邮箱+本地 delta 合并（RULE-06），由 agent 在 export 后用 send_email 完成；本组合自动覆盖导出+同步。",
+  "riskLevel": "high",
+  "parameters": {
+    "companyId": { "type": "string", "required": true, "description": "客户 ID（store key）。" }
+  },
+  "strategy": "sequential",
+  "steps": [
+    {
+      "id": "cfg",
+      "command": "mss.display_config",
+      "params": { "companyId": "{{params.companyId}}" },
+      "extract": { "rangeType": "meta.weekly_range_type", "autoSend": "meta.autoSend", "autoSync": "meta.autoSync", "added": "meta.weekly_emails_added", "removed": "meta.weekly_emails_removed" }
+    },
+    {
+      "id": "tpl",
+      "command": "mss.get_template",
+      "extract": { "tid": "meta.weeklyId", "tname": "meta.weeklyName" }
+    },
+    {
+      "id": "loc",
+      "command": "mss.get_locale",
+      "params": { "companyId": "{{params.companyId}}" },
+      "extract": { "locale": "meta.localLocale" }
+    },
+    {
+      "id": "export",
+      "command": "mss.export_report",
+      "dependsOn": ["cfg", "tpl", "loc"],
+      "params": {
+        "companyId": "{{params.companyId}}",
+        "reportType": "weekly",
+        "templateId": "{{steps.tpl.tid}}",
+        "templateName": "{{steps.tpl.tname}}",
+        "rangeType": "{{steps.cfg.rangeType}}",
+        "exportConfigKey": "weekly_export_config",
+        "locale": "{{steps.loc.locale}}"
+      },
+      "extract": { "taskId": "meta.taskId" }
+    },
+    {
+      "id": "send",
+      "command": "mss.send_email",
+      "dependsOn": ["export"],
+      "when": "{{steps.cfg.autoSend}}",
+      "params": {
+        "taskId": "{{steps.export.taskId}}",
+        "companyId": "{{params.companyId}}",
+        "reportType": "weekly",
+        "emailsAdded": "{{steps.cfg.added}}",
+        "emailsRemoved": "{{steps.cfg.removed}}"
+      }
+    },
+    {
+      "id": "sync",
+      "command": "mss.sync_portal",
+      "dependsOn": ["export"],
+      "when": "{{steps.cfg.autoSync}}",
+      "params": {
+        "taskId": "{{steps.export.taskId}}",
+        "reportType": 2,
+        "locale": "{{steps.loc.locale}}"
+      }
+    }
+  ],
+  "successCriteria": [
+    "顺序执行 配置→模板→小语种→导出→（按 sync_portal 开关）同步。",
+    "report_check=true 时由 agent 人工检查，下游不自动跑。",
+    "上游 task_id 经 extract 管道到 sync_portal。"
+  ],
+  "checks": ["dry-run 展示 workflow 计划，步骤含 command 引用与 when 条件。"],
+  "failureCases": ["任一子步失败则中止并回传失败定位（E-04）。", "导出需 server-mode storageState 会话。"],
+  "naturalLanguage": {
+    "intent": "一键导出客户周报（并按配置同步）。",
+    "aliases": ["导出周报", "跑周报", "生成周报"],
+    "match": { "all": ["周报"], "verbs": ["导出", "跑", "生成"] },
+    "extract": {
+      "companyId": { "type": "after", "pattern": "(?:company_?id|客户id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)" }
+    },
+    "examples": ["导出客户 123 的周报"]
+  }
+}

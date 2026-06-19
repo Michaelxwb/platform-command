@@ -1,0 +1,123 @@
+{
+  "name": "mss.query_email_content",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：查询报告邮件话术（主题 + 正文各部分），供 agent 预览/修改后再发送。多步拼装 subject/header/push_content/sign。task_id 由用户提供（RULE-02），company_id 取邮件头需要。报告改动检测（newer report）不在命令内，由 agent 用 mss.report_status 自行判断。只读。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台浏览器会话；401/403 或非 0 code 时刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/shared/api.py:get_email_subject/header/push_content/sign",
+    "notes": [
+      "接口：POST /gateway/flow/external/action/param/actual_data，body={param_list:[{param_code, other_param}]}，返回 data.list[0].actual_data.show_value。",
+      "param_code：email_theme(主题, report_task_id) / email_header(开头, company_id) / report_push_content(正文, report_task_id) / email_sign(签名, 无)。",
+      "正文 = header + '\\n' + push_content + '\\n' + sign。"
+    ]
+  },
+  "parameters": {
+    "taskId": {
+      "type": "string",
+      "required": true,
+      "description": "报告任务 ID（由用户提供）。"
+    },
+    "companyId": {
+      "type": "string",
+      "required": true,
+      "description": "客户 ID（邮件开头 email_header 需要；由 mss.report_status / search_company 取得）。"
+    }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 邮件话术：{{params.taskId}}",
+    "steps": [
+      {
+        "id": "subject",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data",
+          "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "body": { "param_list": [{ "param_code": "email_theme", "other_param": { "report_task_id": "{{params.taskId}}" } }] },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": { "subject": "data.list.0.actual_data.show_value" }
+      },
+      {
+        "id": "header",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data",
+          "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "body": { "param_list": [{ "param_code": "email_header", "other_param": { "company_id": "{{params.companyId}}" } }] },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": { "header": "data.list.0.actual_data.show_value" }
+      },
+      {
+        "id": "push",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data",
+          "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "body": { "param_list": [{ "param_code": "report_push_content", "other_param": { "report_task_id": "{{params.taskId}}" } }] },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": { "pushContent": "data.list.0.actual_data.show_value" }
+      },
+      {
+        "id": "sign",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/gateway/flow/external/action/param/actual_data",
+          "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "body": { "param_list": [{ "param_code": "email_sign", "other_param": {} }] },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": { "sign": "data.list.0.actual_data.show_value" }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "assemble",
+      "type": "manual",
+      "manual": "多步读取 email_theme/email_header/report_push_content/email_sign 并以 return_json 返回主题与正文各部分；正文=header+push_content+sign。"
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 邮件话术：{{params.taskId}}"
+  },
+  "successCriteria": [
+    "能返回邮件主题与正文各部分（subject/header/pushContent/sign）。",
+    "只读，不发送邮件。"
+  ],
+  "checks": [
+    "dry-run 展示 4 个 actual_data 步骤，body 中 report_task_id/company_id 已替换。",
+    "meta 含 subject/header/pushContent/sign。"
+  ],
+  "failureCases": ["未登录或会话过期 401/403 或非 0 code。", "task_id 不存在。"],
+  "naturalLanguage": {
+    "intent": "查询报告邮件话术预览。",
+    "aliases": ["查邮件话术", "邮件话术", "看话术"],
+    "match": {
+      "any": ["话术", "邮件"],
+      "verbs": ["查询", "查看", "预览"]
+    },
+    "extract": {
+      "taskId": {
+        "type": "after",
+        "pattern": "task_?id\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)"
+      }
+    },
+    "examples": ["查看 task_id=abc 的邮件话术"]
+  }
+}

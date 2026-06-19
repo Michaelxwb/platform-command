@@ -1,0 +1,59 @@
+{
+  "name": "mss.display_config",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：查看客户的本地配置（报告范围/检查开关/发邮开关/同步开关/邮箱 delta/定时）。配置不存在时按默认值自动初始化（S-03）。读取本地 store，不调平台接口。company_id 由 agent 先用 mss.search_company 解析。小语种与平台邮箱由 agent 另调 mss.get_locale 合并展示。",
+  "riskLevel": "low",
+  "parameters": {
+    "companyId": {
+      "type": "string",
+      "required": true,
+      "description": "客户 ID（由 mss.search_company 取得）；作为 store key。"
+    }
+  },
+  "store": {
+    "op": "read",
+    "key": "{{params.companyId}}",
+    "derive": { "module": "./code/config_flags.js", "export": "derive" },
+    "defaults": {
+      "company_name": "",
+      "weekly_range_type": "Last week",
+      "monthly_range_type": "Last month",
+      "report_check": false,
+      "send_email": false,
+      "sync_portal": false,
+      "weekly_emails_added": { "recipient": [], "cc": [], "bcc": [] },
+      "weekly_emails_removed": { "recipient": [], "cc": [], "bcc": [] },
+      "monthly_emails_added": { "recipient": [], "cc": [], "bcc": [] },
+      "monthly_emails_removed": { "recipient": [], "cc": [], "bcc": [] },
+      "weekly_schedule": null,
+      "monthly_schedule": null
+    }
+  },
+  "steps": [
+    {
+      "id": "read",
+      "type": "manual",
+      "manual": "读取 store/<companyId>.json 客户配置，不存在则按 defaults 自动初始化后返回（由 store 引擎执行）。"
+    }
+  ],
+  "successCriteria": [
+    "能返回客户本地配置；配置不存在时自动初始化默认值（S-03）。",
+    "只读本地 store，不调平台接口。"
+  ],
+  "checks": [
+    "dry-run 展示 store read 计划，key 已替换为 companyId。"
+  ],
+  "failureCases": ["companyId 为空。"],
+  "naturalLanguage": {
+    "intent": "查看 MSS 客户配置。",
+    "aliases": ["查看配置", "客户配置", "显示配置"],
+    "match": { "all": ["配置"], "verbs": ["查看", "显示", "查询"] },
+    "extract": {
+      "companyId": {
+        "type": "after",
+        "pattern": "(?:company_?id|客户id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)"
+      }
+    },
+    "examples": ["查看客户 123 的配置"]
+  }
+}

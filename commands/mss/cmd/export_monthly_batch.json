@@ -1,0 +1,39 @@
+{
+  "name": "mss.export_monthly_batch",
+  "platform": "mss",
+  "description": "MSS 批量导出多个客户的月报（workflow forEach + 并发）。对 companyIds 每个客户调 mss.export_monthly，最多 concurrency 个同时跑（默认 3），完一个领下一个直到全部完成。单个客户失败不中止整批。companyIds 由 agent 先用 search_company 解析。真实执行需 server-mode storageState 会话。",
+  "riskLevel": "high",
+  "parameters": {
+    "companyIds": { "type": "array", "required": true, "description": "客户 ID 数组（agent 由 search_company 解析）。" },
+    "concurrency": { "type": "number", "required": false, "default": 3, "description": "同时导出的客户数上限，默认 3。" }
+  },
+  "strategy": "sequential",
+  "steps": [
+    {
+      "id": "batch",
+      "forEach": "{{params.companyIds}}",
+      "as": "cid",
+      "concurrency": "{{params.concurrency}}",
+      "command": "mss.export_monthly",
+      "params": { "companyId": "{{cid}}" }
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 批量导出月报结果",
+    "source": "{{steps.batch.rows}}"
+  },
+  "successCriteria": [
+    "对每个客户调 export_monthly，最多 concurrency 个并发。",
+    "单客户失败不中止整批，逐客户回传 __status/__error。"
+  ],
+  "checks": ["dry-run 展示 forEach 批量计划（含 concurrency）。"],
+  "failureCases": ["companyIds 为空。", "导出需 server-mode storageState 会话。"],
+  "naturalLanguage": {
+    "intent": "批量导出多个客户的月报。",
+    "aliases": ["批量导出月报", "批量跑月报"],
+    "match": { "all": ["月报"], "any": ["批量", "多个", "所有"], "verbs": ["导出", "跑", "生成"] },
+    "extract": {},
+    "examples": ["批量导出这些客户的月报"]
+  }
+}

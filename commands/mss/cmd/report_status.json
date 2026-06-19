@@ -1,0 +1,139 @@
+{
+  "name": "mss.report_status",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：查询报告任务列表/状态（report_status 接口，自动分页）。返回 task_id、客户、报告类型/范围、导出/发送/同步状态等，供 agent 定位 task_id 或核查进度。只读。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台浏览器会话；401/403 或返回非 0 code 时请刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/shared/api.py:get_report_status",
+    "notes": [
+      "接口：POST /order/v1/report/report_status，body={order, offset, limit, keyword, start_time, end_time, template_name}，返回 {code:0, data:{total, list:[...]}}。",
+      "行字段：task_id, company_id, task_status(1=已导出), task_time, report_start_time, report_end_time, template_name, template_type(12=周报/9=月报), push_status, sync_soc。"
+    ]
+  },
+  "parameters": {
+    "keyword": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "按客户/报告关键词过滤，留空返回全部。"
+    },
+    "limit": {
+      "type": "number",
+      "required": false,
+      "default": 20,
+      "description": "最多返回条数（自动翻页累计）。"
+    },
+    "startTime": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "起始时间过滤（平台格式），留空不限。"
+    },
+    "endTime": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "结束时间过滤，留空不限。"
+    }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 报告状态列表",
+    "steps": [
+      {
+        "id": "reports",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/report_status",
+          "headers": {
+            "content-type": "application/json",
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "x-requested-with": "XMLHttpRequest",
+            "x-csrftoken": "{{session.csrfToken}}"
+          },
+          "body": {
+            "order": "asc",
+            "offset": "{{cursor.offset}}",
+            "limit": 20,
+            "keyword": "{{params.keyword}}",
+            "start_time": "{{params.startTime}}",
+            "end_time": "{{params.endTime}}",
+            "template_name": []
+          },
+          "expect": {
+            "bodyCode": 0
+          }
+        },
+        "collect": {
+          "limit": "{{params.limit}}",
+          "offsetParam": true,
+          "pageSize": 20,
+          "maxPages": 50,
+          "itemsPath": "data.list",
+          "totalPath": "data.total",
+          "map": [
+            { "key": "taskId", "path": "task_id" },
+            { "key": "companyId", "path": "company_id" },
+            { "key": "companyName", "path": "company_name" },
+            { "key": "templateName", "path": "template_name" },
+            { "key": "templateType", "path": "template_type" },
+            { "key": "taskStatus", "path": "task_status" },
+            { "key": "taskTime", "path": "task_time" },
+            { "key": "reportStartTime", "path": "report_start_time" },
+            { "key": "reportEndTime", "path": "report_end_time" },
+            { "key": "pushStatus", "path": "push_status" },
+            { "key": "syncSoc", "path": "sync_soc" }
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "list",
+      "type": "manual",
+      "manual": "POST /order/v1/report/report_status 分页读取，以 return_json 返回任务列表（由 dataSource + output.capability 执行）。"
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 报告状态列表"
+  },
+  "successCriteria": [
+    "能返回报告任务列表及其状态字段（含 task_id）。",
+    "自动翻页累计到 limit 或 total 为止。",
+    "只读，不含写操作。"
+  ],
+  "checks": [
+    "dry-run 展示 POST /order/v1/report/report_status 计划。",
+    "rows 含 taskId / companyId / taskStatus 等字段。"
+  ],
+  "failureCases": ["未登录或会话过期 401/403 或非 0 code。"],
+  "naturalLanguage": {
+    "intent": "查询 MSS 报告任务列表/状态。",
+    "aliases": ["查报告状态", "报告列表", "报告任务列表"],
+    "match": {
+      "any": ["报告"],
+      "verbs": ["查询", "查看", "列表", "状态"]
+    },
+    "extract": {
+      "keyword": {
+        "type": "after",
+        "pattern": "(?:客户|关键词|报告)\\s*(?:是|为|=|:|：)?\\s*([^，。；,;]+)"
+      }
+    },
+    "examples": ["查 MSS 报告状态 关键词 XX", "看看报告任务列表"]
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "name": "mss.set_schedule",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：设置/取消客户的周报/月报定时（写 store 的 weekly_schedule / monthly_schedule）。schedule 参数为结构化对象（自然语言到结构由 agent 解析，存疑先与用户确认不臆测）。daemon 扫描 store 时按此字段注册/移除定时任务（与 daemon 经 store 解耦）。",
+  "riskLevel": "medium",
+  "parameters": {
+    "companyId": {
+      "type": "string",
+      "required": true,
+      "description": "客户 ID（store key）。"
+    },
+    "schedule": {
+      "type": "object",
+      "required": true,
+      "description": "定时设置对象，仅含要改的字段。周报：{\"weekly_schedule\":{\"weekday\":\"WED\",\"time\":\"10:00\",\"display\":\"每周三 10:00\"}}；月报：{\"monthly_schedule\":{\"monthday\":1,\"time\":\"10:00\",\"display\":\"每月1号 10:00\"}}；取消传 {\"weekly_schedule\":null}。weekday=MON..SUN，time=HH:MM 24h，monthday=1..31。"
+    }
+  },
+  "store": {
+    "op": "merge",
+    "key": "{{params.companyId}}",
+    "patch": "{{params.schedule}}"
+  },
+  "steps": [
+    {
+      "id": "merge",
+      "type": "manual",
+      "manual": "把 schedule 合并进 store/<companyId>.json（由 store 引擎执行）。daemon 下次扫描据 weekly_schedule/monthly_schedule 注册或移除定时。"
+    }
+  ],
+  "successCriteria": [
+    "能写入/清空客户周报或月报定时字段。",
+    "时间为 HH:MM 24h；存疑由 agent 先与用户确认。"
+  ],
+  "checks": ["dry-run 展示 store merge 计划，patch 来自 params.schedule。"],
+  "failureCases": ["schedule 非对象。", "companyId 为空。"],
+  "naturalLanguage": {
+    "intent": "设置或取消 MSS 报告定时。",
+    "aliases": ["设定定时", "定时导出", "取消定时", "每周导出", "每月导出"],
+    "match": { "any": ["定时", "每周", "每月"], "verbs": ["设置", "设定", "取消", "导出"] },
+    "extract": {
+      "companyId": {
+        "type": "after",
+        "pattern": "(?:company_?id|客户id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)"
+      }
+    },
+    "examples": ["每周三10点导出客户 123 的周报", "取消客户 123 的周报定时"]
+  }
+}

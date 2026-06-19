@@ -1,0 +1,113 @@
+{
+  "module_list": [
+    {
+      "module_id": "weekly-report-overseas-prefix-summary",
+      "select": true,
+      "label": "Overview",
+      "children": [
+        {
+          "module_id": "weekly-report-overseas-prefix-log_reduction",
+          "select": true,
+          "label": "Log Reduction"
+        },
+        {
+          "module_id": "weekly-report-overseas-prefix-inbound_attacks",
+          "select": true,
+          "label": "Inbound Attacks"
+        },
+        {
+          "module_id": "weekly-report-overseas-prefix-incidents_and_threats",
+          "select": true,
+          "label": "Incidents & Threats",
+          "children": [
+            {
+              "module_id": "weekly-report-overseas-prefix-in_service_incidents_and_threats",
+              "select": true,
+              "label": "Incidents & Threats (Managed Assets)"
+            },
+            {
+              "module_id": "weekly-report-overseas-prefix-out_service_incidents",
+              "select": true,
+              "label": "Incidents (Unmanaged Assets)"
+            }
+          ]
+        },
+        {
+          "module_id": "weekly-report-overseas-prefix-next_steps",
+          "select": true,
+          "label": "Next Steps"
+        }
+      ]
+    },
+    {
+      "module_id": "weekly-report-overseas-prefix-safe_operation",
+      "select": true,
+      "label": "Security Operations",
+      "children": [
+        {
+          "module_id": "weekly-report-overseas-prefix-safe_operation_inbound_attacks",
+          "select": true,
+          "label": "Inbound Attacks",
+          "children": [
+            {
+              "module_id": "weekly-report-overseas-prefix-safe_operation_inbound_attacks_overview",
+              "select": true,
+              "label": "Overview"
+            },
+            {
+              "module_id": "weekly-report-overseas-prefix-attack_trend_list",
+              "select": true,
+              "label": "Inbound Attack Trend"
+            },
+            {
+              "module_id": "weekly-report-overseas-prefix-attack_top_list",
+              "select": true,
+              "label": "Top 5 Attacker IPs"
+            }
+          ]
+        },
+        {
+          "module_id": "weekly-report-overseas-prefix-safe_operation_incidents_and_threats_table",
+          "select": true,
+          "label": "Incidents & Threats",
+          "children": [
+            {
+              "module_id": "weekly-report-overseas-prefix-in_service",
+              "select": true,
+              "label": "Managed",
+              "children": [
+                {
+                  "module_id": "weekly-report-overseas-prefix-in_service_current_new",
+                  "select": true,
+                  "label": "New"
+                },
+                {
+                  "module_id": "weekly-report-overseas-prefix-in_service_previous",
+                  "select": true,
+                  "label": "Previous"
+                }
+              ]
+            },
+            {
+              "module_id": "weekly-report-overseas-prefix-out_service",
+              "select": true,
+              "label": "Unmanaged",
+              "children": [
+                {
+                  "module_id": "weekly-report-overseas-prefix-out_service_current_new",
+                  "select": true,
+                  "label": "New"
+                },
+                {
+                  "module_id": "weekly-report-overseas-prefix-out_service_previous",
+                  "select": true,
+                  "label": "Previous"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

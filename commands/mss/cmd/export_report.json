@@ -1,0 +1,97 @@
+{
+  "name": "mss.export_report",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：导出报告（浏览器拦截链路）。urlBuilder 按报告类型+范围算时间范围拼导出页 URL；打开页后拦截改写 get_history_pwd 的 export_locales（en+小语种），捕获 generate_report 的 task_id，轮询 report_status 至 task_status=1（≤30min）。RULE-01：reportType 必填。company_id/templateId/templateName/rangeType/locale/exportConfigKey 由 agent 先用 search_company/get_locale/display_config 等解析后传入。真实执行需 server-mode storageState 会话。",
+  "riskLevel": "high",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台会话（server-mode storageState）；401/403 时刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/export_report/background_export.py",
+    "notes": [
+      "导出由前端页触发：goto report_edit.html#/report-edit?mode=export...；page.route 拦截 get_history_pwd 改 <reportType>_export_config.export_locales；监听 generate_report 取 _id=task_id；轮询 report_status 至 task_status=1。",
+      "export_locales = [en] 或 [en, 小语种]；时间范围由 export_url.js 按 rangeType 计算。"
+    ]
+  },
+  "parameters": {
+    "companyId": { "type": "string", "required": true, "description": "客户 ID。" },
+    "reportType": { "type": "string", "required": true, "enum": ["weekly", "monthly"], "description": "报告类型（RULE-01 必填）。" },
+    "templateId": { "type": "string", "required": true, "description": "报告模板 ID（agent 由 template_list 取得）。" },
+    "templateName": { "type": "string", "required": true, "description": "报告模板名（Weekly/Monthly Security Report）。" },
+    "rangeType": { "type": "string", "required": true, "description": "时间范围类型：Last 7 days/Last week/Last month/Last 30 days（取自 display_config）。" },
+    "exportConfigKey": { "type": "string", "required": true, "enum": ["weekly_export_config", "monthly_export_config"], "description": "get_history_pwd 中要改写的 config 键（按 reportType）。" },
+    "locale": { "type": "string", "required": false, "default": "", "description": "平台小语种代码（id/de/th/空）；导出语种 = en + 该小语种（由 export_locales.js 拼）。" }
+  },
+  "interceptFlow": {
+    "urlBuilder": { "module": "./code/export_url.js", "export": "buildUrl" },
+    "gotoTimeoutMs": 60000,
+    "waitMs": 600000,
+    "rewrite": [
+      {
+        "urlPattern": "/order/v1/report/get_history_pwd",
+        "set": [
+          { "path": "data.{{params.exportConfigKey}}.export_locales", "builder": { "module": "./code/export_locales.js", "export": "buildValue" } }
+        ]
+      }
+    ],
+    "capture": [
+      {
+        "urlPattern": "/order/v1/report/generate_report",
+        "extract": { "taskId": "data._id", "code": "code" }
+      }
+    ],
+    "poll": {
+      "url": "https://soar.sea.sangfor.com/order/v1/report/report_status",
+      "method": "POST",
+      "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+      "body": { "order": "asc", "offset": 0, "limit": 20, "keyword": "", "start_time": "", "end_time": "", "template_name": [] },
+      "itemsPath": "data.list",
+      "matchField": "task_id",
+      "matchValue": "{{capture.taskId}}",
+      "readyField": "task_status",
+      "readyValue": 1,
+      "intervalMs": 15000,
+      "timeoutMs": 1800000
+    }
+  },
+  "steps": [
+    {
+      "id": "export",
+      "type": "manual",
+      "manual": "urlBuilder 算时间范围拼导出 URL → 打开页 → 拦截改写 export_locales → 捕获 generate_report 取 task_id → 轮询 report_status 至就绪（由 interceptFlow 执行）。"
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 导出报告：{{params.companyId}} {{params.reportType}}"
+  },
+  "successCriteria": [
+    "能拼正确导出 URL、改写 export_locales、捕获 task_id 并轮询至 task_status=1。",
+    "超时（≤30min 未就绪）原样回传，不静默（E-03）。"
+  ],
+  "checks": [
+    "dry-run 展示 intercept 计划；真实执行需 storageState 会话。"
+  ],
+  "failureCases": [
+    "未登录或会话过期。",
+    "generate_report 未在 waitMs 内捕获（E-03）。"
+  ],
+  "naturalLanguage": {
+    "intent": "导出客户周报/月报。",
+    "aliases": ["导出报告", "导出周报", "导出月报", "跑报告"],
+    "match": { "any": ["报告", "周报", "月报"], "verbs": ["导出", "生成", "跑"] },
+    "extract": {
+      "companyId": { "type": "after", "pattern": "(?:company_?id|客户id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)" }
+    },
+    "examples": ["导出客户 123 的周报"]
+  }
+}

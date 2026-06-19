@@ -4,21 +4,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { listCommands, loadCommand, mergeParams } from '../src/command_store.js';
-import { resolveCommandParams } from '../src/params_resolver.js';
-import { buildWorkflowPlan, renderValue } from '../src/workflow.js';
-import { verifyCommand } from '../src/verify.js';
-import { formatHumanReadable, parseNaturalLanguage } from '../src/nl.js';
-import { learnAction, learnResult } from '../src/learn.js';
-import { handleMcpRequest } from '../src/mcp_server.js';
-import { exportRows } from '../src/exporters.js';
-import { readDataSource } from '../src/data_sources.js';
-import { evaluateAcceptance } from '../src/acceptance.js';
-import { executeCommand, getExecutionCapability, planCommand } from '../src/execute.js';
-import { buildScheduleSpec, installSchedule, listSchedules, getScheduleStatus, removeSchedule, cronToSchtasks } from '../src/schedule.js';
-import { requiresBrowser } from '../src/requirements.js';
-import { doctorCommand, doctorAll } from '../src/doctor.js';
-import { describeCommand } from '../src/describe.js';
+import { listCommands, loadCommand, mergeParams } from '../src/model/command_store.js';
+import { resolveCommandParams } from '../src/model/params_resolver.js';
+import { buildWorkflowPlan, renderValue } from '../src/engine/workflow.js';
+import { verifyCommand } from '../src/model/verify.js';
+import { formatHumanReadable, parseNaturalLanguage } from '../src/nl/nl.js';
+import { learnAction, learnResult } from '../src/nl/learn.js';
+import { handleMcpRequest } from '../src/entry/mcp_server.js';
+import { exportRows } from '../src/io/exporters.js';
+import { readDataSource } from '../src/engine/data_sources.js';
+import { evaluateAcceptance } from '../src/model/acceptance.js';
+import { executeCommand, getExecutionCapability, planCommand } from '../src/engine/execute.js';
+import { buildScheduleSpec, installSchedule, listSchedules, getScheduleStatus, removeSchedule, cronToSchtasks } from '../src/schedule/schedule.js';
+import { requiresBrowser } from '../src/model/requirements.js';
+import { doctorCommand, doctorAll } from '../src/model/doctor.js';
+import { describeCommand } from '../src/model/describe.js';
+import { readStore, writeStore, replaceStore, listStore, deleteStore } from '../src/io/store.js';
+import { calcDateRange } from '../commands/mss/code/date_range.js';
+import { applyResponseRewrite, pollUntilReady, executeInterceptFlow } from '../src/engine/intercept_executor.js';
+import { iterTriggerTimes, computeMissedJobs, runWithConcurrency, readHeartbeat, writeHeartbeat, loadScheduleEntries, selectDueJobs } from '../src/schedule/daemon.js';
+import { buildBody as buildSendEmailBody } from '../commands/mss/code/send_email_body.js';
+import { derive as deriveConfigFlags } from '../commands/mss/code/config_flags.js';
+import { buildBody as buildSyncPortalBody } from '../commands/mss/code/sync_portal_body.js';
+import { importCookieState, sessionStatus } from '../src/adapter/session_import.js';
 import { signBilibiliWbi } from '../commands/bilibili/code/bilibili_wbi.js';
 
 const require = createRequire(import.meta.url);
@@ -32,8 +40,8 @@ const pkg = (() => {
 })();
 
 const commandsDir = path.join(process.cwd(), 'commands');
-const CLI_PATH = fs.existsSync(path.join(process.cwd(), 'dist/src/cli.js')) ? 'dist/src/cli.js' : 'src/cli.js';
-const MCP_SERVER_PATH = fs.existsSync(path.join(process.cwd(), 'dist/src/mcp_server.js')) ? 'dist/src/mcp_server.js' : 'src/mcp_server.js';
+const CLI_PATH = fs.existsSync(path.join(process.cwd(), 'dist/src/entry/cli.js')) ? 'dist/src/entry/cli.js' : 'src/entry/cli.js';
+const MCP_SERVER_PATH = fs.existsSync(path.join(process.cwd(), 'dist/src/entry/mcp_server.js')) ? 'dist/src/entry/mcp_server.js' : 'src/entry/mcp_server.js';
 
 
 const afterBoundaryCommand = {
@@ -857,10 +865,10 @@ assert.ok(docsJson.commands > 0);
 assert.ok(docsJson.markdown.includes('demo.search_example'));
 
 // ============ 服务器模式（多用户部署）：env 矩阵 / 适配器选择 / 沙箱 / 会话健康 / 本地兼容 ============
-const { resolveServerMode, resolveOutputPath, serverModeMeta } = await import('../src/server_mode.js');
-const { markSessionInvalid, clearSessionInvalid, getSessionState } = await import('../src/session_state.js');
-const playwrightAdapter = await import('../src/playwright_adapter.js');
-const { recordRun } = await import('../src/runs.js');
+const { resolveServerMode, resolveOutputPath, serverModeMeta } = await import('../src/entry/server_mode.js');
+const { markSessionInvalid, clearSessionInvalid, getSessionState } = await import('../src/adapter/session_state.js');
+const playwrightAdapter = await import('../src/adapter/playwright_adapter.js');
+const { recordRun } = await import('../src/io/runs.js');
 const os = await import('node:os');
 
 const SERVER_ENV_KEYS = ['PLATFORM_COMMAND_USER_ID', 'PLATFORM_COMMAND_STORAGE_STATE', 'PLATFORM_COMMAND_OUTPUT_DIR', 'PLATFORM_COMMAND_DATA_DIR'];
@@ -1012,17 +1020,48 @@ try {
     output: { capability: 'return_json', title: 'items' }
   }, null, 2));
 
-  // 服务器模式 + fake playwright → 真实执行走 playwright，run 记录带 userId/adapter (S-03/S-05)
-  playwrightAdapter.__setPlaywrightLoader(async () => ({ chromium: { launch: async () => fakeBrowser } }));
-  fetchQueue.push({ status: 200, body: { data: { items: [{ name: 'x' }], cursor: { is_end: true } } } });
-  const pwExec = await executeCommand('demo.sess_pw', {}, { dryRun: false, confirm: true, commandsDir: sessCmdDir });
-  assert.equal(pwExec.status, 'executed');
-  assert.equal(pwExec.adapter, 'playwright');
-  assert.deepEqual(pwExec.rows, [{ name: 'x' }]);
-  const pwRunRecord = JSON.parse(fs.readFileSync(pwExec.runFile, 'utf8'));
-  assert.equal(pwRunRecord.userId, 'alice');
-  assert.equal(pwRunRecord.adapter, 'playwright');
-  fs.rmSync(pwExec.runFile, { force: true });
+  // Plan B：服务器模式 + storageState → http_json 命令走 node fetch + 注入 Cookie 头，不启动浏览器 (S-03/S-05)
+  {
+    const httpB = await import('node:http');
+    let capturedB = null;
+    const srvB = httpB.createServer((req, res) => {
+      capturedB = { cookie: req.headers.cookie, csrf: req.headers['x-csrftoken'], origin: req.headers.origin, referer: req.headers.referer };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: { items: [{ name: 'x' }], cursor: { is_end: true } } }));
+    });
+    await new Promise((r) => srvB.listen(0, '127.0.0.1', r));
+    const portB = srvB.address().port;
+    const stateB = path.join(os.tmpdir(), `pc-stateB-${process.pid}.json`);
+    fs.writeFileSync(stateB, JSON.stringify({ cookies: [
+      { name: 'csrf_token', value: 'tok-1', domain: '127.0.0.1', path: '/' },
+      { name: 'soc-token', value: 'sess-b', domain: '127.0.0.1', path: '/' }
+    ], origins: [] }));
+    fs.writeFileSync(path.join(sessCmdDir, 'demo.sess_node.json'), JSON.stringify({
+      name: 'demo.sess_node', platform: 'demo', description: 'd', riskLevel: 'low',
+      runtime: { auth: { type: 'browser_session_cookie' } },
+      learnedFrom: { url: `http://127.0.0.1:${portB}/app` },
+      parameters: {},
+      dataSource: { type: 'http_json', steps: [{ id: 'list', request: { method: 'GET', url: `http://127.0.0.1:${portB}/v1/items`, headers: { 'x-csrftoken': '{{session.csrfToken}}' } }, collect: { itemsPath: 'data.items', limit: 10, map: [{ key: 'name', path: 'name' }] } }] },
+      output: { capability: 'return_json', title: 'items' }
+    }));
+    const savedState = process.env.PLATFORM_COMMAND_STORAGE_STATE;
+    process.env.PLATFORM_COMMAND_STORAGE_STATE = stateB;
+    const pwExec = await executeCommand('demo.sess_node', {}, { dryRun: false, confirm: true, commandsDir: sessCmdDir });
+    process.env.PLATFORM_COMMAND_STORAGE_STATE = savedState;
+    assert.equal(pwExec.status, 'executed');
+    assert.equal(pwExec.adapter, 'node_http');                 // B：不再启动浏览器
+    assert.deepEqual(pwExec.rows, [{ name: 'x' }]);
+    assert.ok(capturedB.cookie && capturedB.cookie.includes('soc-token=sess-b'), 'Cookie 头注入了 storageState 会话 cookie');
+    assert.equal(capturedB.csrf, 'tok-1', 'X-Csrftoken 取自 storageState 的 csrf_token');
+    assert.equal(capturedB.origin, `http://127.0.0.1:${portB}`, 'Origin 按目标 origin 注入（CSRF 校验需要）');
+    assert.ok(capturedB.referer && capturedB.referer.startsWith(`http://127.0.0.1:${portB}/`), 'Referer 按目标 origin 注入');
+    const pwRunRecord = JSON.parse(fs.readFileSync(pwExec.runFile, 'utf8'));
+    assert.equal(pwRunRecord.userId, 'alice');
+    assert.equal(pwRunRecord.adapter, 'node_http');
+    fs.rmSync(pwExec.runFile, { force: true });
+    await new Promise((r) => srvB.close(r));
+    fs.rmSync(stateB, { force: true });
+  }
 
   // 服务器模式 dry-run readiness：playwright 可用 → ready
   const pwDry = await executeCommand('demo.sess_pw', {}, { dryRun: true, commandsDir: sessCmdDir });
@@ -1069,7 +1108,7 @@ try {
   }
 
   // ===== UI 执行引擎（legacy execution.ui，post_comment 形态）=====
-  const { extractUiActions, hasUiExecution } = await import('../src/ui_executor.js');
+  const { extractUiActions, hasUiExecution } = await import('../src/engine/ui_executor.js');
   const uiCmd = {
     name: 'demo.ui_post', platform: 'demo', riskLevel: 'high',
     runtime: { auth: { type: 'browser_session_cookie' } },
@@ -1178,3 +1217,674 @@ try {
 }
 
 console.log('Server-mode tests passed.');
+
+// --- TASK-001：平台 store 层（FEAT-01） ---
+{
+  const storeCmdDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-store-'));
+  try {
+    // 读不存在 → null
+    assert.equal(readStore(storeCmdDir, 'C123'), null);
+    assert.deepEqual(listStore(storeCmdDir), []);
+    // 写后读回
+    const w1 = writeStore(storeCmdDir, 'C123', { company_name: 'Acme', send_email: false });
+    assert.deepEqual(w1, { company_name: 'Acme', send_email: false });
+    assert.deepEqual(readStore(storeCmdDir, 'C123'), { company_name: 'Acme', send_email: false });
+    // 补丁浅合并（保留旧字段，覆盖同名）
+    const w2 = writeStore(storeCmdDir, 'C123', { send_email: true, sync_portal: true });
+    assert.deepEqual(w2, { company_name: 'Acme', send_email: true, sync_portal: true });
+    assert.deepEqual(readStore(storeCmdDir, 'C123'), { company_name: 'Acme', send_email: true, sync_portal: true });
+    // replaceStore 整体替换
+    replaceStore(storeCmdDir, 'C123', { only: 1 });
+    assert.deepEqual(readStore(storeCmdDir, 'C123'), { only: 1 });
+    // listStore 列出 key
+    writeStore(storeCmdDir, 'C999', { a: 1 });
+    assert.deepEqual(listStore(storeCmdDir).sort(), ['C123', 'C999']);
+    // deleteStore
+    assert.equal(deleteStore(storeCmdDir, 'C999'), true);
+    assert.equal(deleteStore(storeCmdDir, 'C999'), false);
+    assert.deepEqual(listStore(storeCmdDir), ['C123']);
+    // 路径穿越被拒
+    assert.throws(() => readStore(storeCmdDir, '../escape'), /Invalid store key/);
+    assert.throws(() => writeStore(storeCmdDir, 'a/b', { x: 1 }), /Invalid store key/);
+    assert.throws(() => readStore(storeCmdDir, '..'), /Invalid store key/);
+    // 非对象 patch 被拒
+    assert.throws(() => writeStore(storeCmdDir, 'C123', [1, 2]), /must be a plain object/);
+  } finally {
+    fs.rmSync(storeCmdDir, { recursive: true, force: true });
+  }
+}
+console.log('store layer tests passed.');
+
+// --- TASK-002：workflow 组合执行引擎（FEAT-02） ---
+{
+  const wfHttp = await import('node:http');
+  const wfDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-wf-'));
+  let capturedB = null;
+  const wfServer = wfHttp.createServer((req, res) => {
+    if (req.url.startsWith('/a')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ code: 0, data: { token: 'T123' } }));
+      return;
+    }
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      capturedB = Buffer.concat(chunks).toString('utf8');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ code: 0, data: {}, echoed: capturedB }));
+    });
+  });
+  await new Promise((resolve) => wfServer.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = wfServer.address();
+    const mkAtomic = (name, urlPath, extra) => ({
+      name, platform: 'demo', description: 'd', riskLevel: 'low', parameters: extra.parameters || {},
+      dataSource: { type: 'http_json', steps: [{ id: 's', request: { method: extra.method || 'GET', url: `http://127.0.0.1:${port}${urlPath}`, body: extra.body, expect: { bodyCode: 0 } }, extract: extra.extract }] },
+      output: { capability: 'return_json' },
+      steps: [{ id: 'x', type: 'manual', manual: 'run' }]
+    });
+    fs.writeFileSync(path.join(wfDir, 'demo.sub_a.json'), JSON.stringify(mkAtomic('demo.sub_a', '/a', { extract: { token: 'data.token' } })));
+    fs.writeFileSync(path.join(wfDir, 'demo.sub_b.json'), JSON.stringify(mkAtomic('demo.sub_b', '/b', { method: 'POST', body: { got: '{{params.passed}}' }, parameters: { passed: { type: 'string' } }, extract: { echoed: 'echoed' } })));
+    // 组合命令：a → b，b 的参数引用 a 的 meta.token
+    const composed = {
+      name: 'demo.compose', platform: 'demo', description: 'compose', riskLevel: 'low', parameters: { flag: { type: 'boolean', default: true } },
+      steps: [
+        { id: 'a', command: 'demo.sub_a', extract: { token: 'meta.token' } },
+        { id: 'b', command: 'demo.sub_b', dependsOn: ['a'], when: '{{params.flag}}', params: { passed: '{{steps.a.token}}' } }
+      ]
+    };
+    fs.writeFileSync(path.join(wfDir, 'demo.compose.json'), JSON.stringify(composed));
+
+    // 能力识别：组合工作流可执行
+    const cap = getExecutionCapability(loadCommand('demo.compose', { commandsDir: wfDir }).command);
+    assert.equal(cap.executable, true);
+    assert.equal(cap.engine, 'workflow_compose');
+    // verify 通过（command step 合法）
+    assert.equal(verifyCommand('demo.compose', { commandsDir: wfDir }).ok, true);
+
+    // 真实执行：参数从 a 管道到 b
+    const run = await executeCommand('demo.compose', {}, { dryRun: false, confirm: true, commandsDir: wfDir });
+    assert.equal(run.status, 'executed', JSON.stringify(run));
+    assert.equal(run.capability, 'workflow_compose');
+    assert.ok(capturedB && capturedB.includes('T123'), `piping failed, capturedB=${capturedB}`);
+    assert.equal(run.steps.find((s) => s.id === 'b').status, 'executed');
+
+    // when=false 跳过 b
+    capturedB = null;
+    const runSkip = await executeCommand('demo.compose', { flag: false }, { dryRun: false, confirm: true, commandsDir: wfDir });
+    assert.equal(runSkip.status, 'executed');
+    assert.equal(capturedB, null, 'b should be skipped when flag=false');
+    assert.equal(runSkip.steps.find((s) => s.id === 'b').skipped, true);
+
+    // 失败中止：子命令验收失败 → 组合返回 failed + failedStep
+    fs.writeFileSync(path.join(wfDir, 'demo.sub_fail.json'), JSON.stringify({
+      name: 'demo.sub_fail', platform: 'demo', description: 'd', riskLevel: 'low', parameters: {},
+      dataSource: { type: 'inline', rows: [] }, output: { capability: 'return_json' },
+      acceptance: { criteria: [{ id: 'rows', type: 'data_contains', expect: { minCount: 1 } }] },
+      steps: [{ id: 'x', type: 'manual', manual: 'run' }]
+    }));
+    fs.writeFileSync(path.join(wfDir, 'demo.compose_fail.json'), JSON.stringify({
+      name: 'demo.compose_fail', platform: 'demo', description: 'd', riskLevel: 'low', parameters: {},
+      steps: [{ id: 'f', command: 'demo.sub_fail' }, { id: 'after', command: 'demo.sub_a', dependsOn: ['f'] }]
+    }));
+    const runFail = await executeCommand('demo.compose_fail', {}, { dryRun: false, confirm: true, commandsDir: wfDir });
+    assert.equal(runFail.status, 'failed');
+    assert.equal(runFail.failedStep, 'f');
+    assert.ok(!runFail.steps.find((s) => s.id === 'after'), 'after step must not run when prior fails');
+  } finally {
+    await new Promise((resolve) => wfServer.close(resolve));
+    fs.rmSync(wfDir, { recursive: true, force: true });
+  }
+}
+console.log('workflow compose engine tests passed.');
+
+// --- TASK-012 支撑：store 命令引擎（read 自动初始化 / merge 合并） ---
+{
+  const cfgDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-cfg-'));
+  try {
+    const defaults = { a: 1, b: false, nested: { x: [] } };
+    fs.writeFileSync(path.join(cfgDir, 'demo.cfg.json'), JSON.stringify({
+      name: 'demo.cfg', platform: 'demo', description: 'd', riskLevel: 'low',
+      parameters: { id: { type: 'string', required: true } },
+      store: { op: 'read', key: '{{params.id}}', defaults },
+      steps: [{ id: 'r', type: 'manual', manual: 'read' }]
+    }));
+    fs.writeFileSync(path.join(cfgDir, 'demo.cfgw.json'), JSON.stringify({
+      name: 'demo.cfgw', platform: 'demo', description: 'd', riskLevel: 'medium',
+      parameters: { id: { type: 'string', required: true }, config: { type: 'object', required: true } },
+      store: { op: 'merge', key: '{{params.id}}', patch: '{{params.config}}', defaults },
+      steps: [{ id: 'm', type: 'manual', manual: 'merge' }]
+    }));
+    // verify
+    assert.equal(verifyCommand('demo.cfg', { commandsDir: cfgDir }).ok, true);
+    // read → 自动初始化
+    const r1 = await executeCommand('demo.cfg', { id: 'X1' }, { dryRun: false, confirm: true, commandsDir: cfgDir });
+    assert.equal(r1.status, 'executed');
+    assert.equal(r1.meta.a, 1);
+    assert.equal(r1.meta._initialized, true);
+    assert.ok(fs.existsSync(path.join(cfgDir, 'store', 'X1.json')), 'store file should be created');
+    // merge → 只改给定字段
+    const r2 = await executeCommand('demo.cfgw', { id: 'X1', config: { b: true, c: 'new' } }, { dryRun: false, confirm: true, commandsDir: cfgDir });
+    assert.equal(r2.meta.a, 1);
+    assert.equal(r2.meta.b, true);
+    assert.equal(r2.meta.c, 'new');
+    // 再 read → 已存在不再初始化，保留合并结果
+    const r3 = await executeCommand('demo.cfg', { id: 'X1' }, { dryRun: false, confirm: true, commandsDir: cfgDir });
+    assert.equal(r3.meta._initialized, false);
+    assert.equal(r3.meta.b, true);
+    assert.equal(r3.meta.c, 'new');
+  } finally {
+    fs.rmSync(cfgDir, { recursive: true, force: true });
+  }
+}
+console.log('store command engine tests passed.');
+
+// --- TASK-005/007 支撑：body 变换钩子（bodyBuilder） ---
+{
+  const btHttp = await import('node:http');
+  const btDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-bt-'));
+  let captured = null;
+  const btServer = btHttp.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      captured = Buffer.concat(chunks).toString('utf8');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ code: 0, echoed: captured }));
+    });
+  });
+  await new Promise((resolve) => btServer.listen(0, '127.0.0.1', resolve));
+  try {
+    fs.mkdirSync(path.join(btDir, 'code'), { recursive: true });
+    fs.writeFileSync(path.join(btDir, 'code', 'builder.js'),
+      'export function buildBody(_b,{context}){return {built:true, who:context.params.who, n:(context.params.n||0)+1};}\n');
+    const { port } = btServer.address();
+    await readDataSource({
+      type: 'http_json',
+      steps: [{
+        id: 's',
+        request: {
+          method: 'POST',
+          url: `http://127.0.0.1:${port}/x`,
+          body: { ignored: true },
+          bodyBuilder: './code/builder.js',
+          expect: { bodyCode: 0 }
+        },
+        extract: { echoed: 'echoed' }
+      }]
+    }, { who: 'alice', n: 4 }, { commandDir: btDir });
+    assert.equal(captured, JSON.stringify({ built: true, who: 'alice', n: 5 }), `bodyBuilder output not sent: ${captured}`);
+  } finally {
+    await new Promise((resolve) => btServer.close(resolve));
+    fs.rmSync(btDir, { recursive: true, force: true });
+  }
+}
+console.log('body builder hook tests passed.');
+
+// --- TASK-005：date_range 计算（复刻 calc_date_range） ---
+{
+  const today = new Date(2026, 5, 15); // 2026-06-15
+  assert.deepEqual(calcDateRange('weekly', 'Last 7 days', today), { startTime: '2026-06-08', endTime: '2026-06-14' });
+  assert.deepEqual(calcDateRange('monthly', 'Last 30 days', today), { startTime: '2026-05-16', endTime: '2026-06-14' });
+  assert.deepEqual(calcDateRange('monthly', 'Last month', today), { startTime: '2026-05-01', endTime: '2026-05-31' });
+  const lw = calcDateRange('weekly', 'Last week', today);
+  assert.equal(new Date(lw.startTime).getDay(), 1, 'Last week start must be Monday');
+  assert.equal(new Date(lw.endTime).getDay(), 0, 'Last week end must be Sunday');
+  assert.ok(lw.endTime < '2026-06-15', 'Last week end before today');
+  // 月末边界：1/31 当 2 月 → 上月为 1 月 31 天
+  assert.deepEqual(calcDateRange('monthly', 'Last month', new Date(2026, 2, 10)), { startTime: '2026-02-01', endTime: '2026-02-28' });
+}
+console.log('date range tests passed.');
+
+// --- TASK-003：拦截执行器纯逻辑（response 改写 / 轮询状态机） ---
+{
+  const rw = applyResponseRewrite(JSON.stringify({ data: { weekly_export_config: { export_locales: ['en'] } } }),
+    [{ path: 'data.weekly_export_config.export_locales', value: ['en', 'id'] }]);
+  assert.deepEqual(JSON.parse(rw).data.weekly_export_config.export_locales, ['en', 'id']);
+  assert.equal(applyResponseRewrite('not json', [{ path: 'a', value: 1 }]), 'not json');
+
+  let n = 0;
+  const ready = await pollUntilReady(async () => ({ data: { list: [{ task_id: 'T1', task_status: (++n >= 2 ? 1 : 0) }] } }),
+    { itemsPath: 'data.list', matchField: 'task_id', matchValue: 'T1', readyField: 'task_status', readyValue: 1, intervalMs: 1, timeoutMs: 1000 });
+  assert.equal(ready.ready, true);
+  assert.ok(ready.polls >= 2);
+
+  const failed = await pollUntilReady(async () => ({ data: { list: [{ task_id: 'T1', task_status: 2 }] } }),
+    { itemsPath: 'data.list', matchField: 'task_id', matchValue: 'T1', readyField: 'task_status', readyValue: 1, failValues: [2], intervalMs: 1, timeoutMs: 1000 });
+  assert.equal(failed.failed, true);
+
+  const timedOut = await pollUntilReady(async () => ({ data: { list: [] } }),
+    { itemsPath: 'data.list', matchField: 'task_id', matchValue: 'X', readyField: 'task_status', readyValue: 1, intervalMs: 1, timeoutMs: 15 });
+  assert.equal(timedOut.timedOut, true);
+}
+console.log('intercept helpers tests passed.');
+
+// --- TASK-003：拦截流编排（fake playwright：改写 export_locales + 捕获 taskId + 轮询） ---
+{
+  const pa = await import('../src/adapter/playwright_adapter.js');
+  const stateFile = path.join(process.cwd(), '.tmp-ic-state.json');
+  fs.writeFileSync(stateFile, JSON.stringify({ cookies: [{ name: 'csrf_token', value: 'x', domain: 'soar.test', path: '/' }], origins: [] }));
+  const savedState = process.env.PLATFORM_COMMAND_STORAGE_STATE;
+  const savedUser = process.env.PLATFORM_COMMAND_USER_ID;
+  process.env.PLATFORM_COMMAND_STORAGE_STATE = stateFile;
+  process.env.PLATFORM_COMMAND_USER_ID = 'tester';
+  let rewritten = null;
+  const routes = [];
+  let respCb = null;
+  const fakePage = {
+    route: async (matcher, handler) => routes.push({ matcher, handler }),
+    on: (ev, cb) => { if (ev === 'response') respCb = cb; },
+    goto: async () => {
+      for (const r of routes) {
+        await r.handler({
+          fetch: async () => ({ text: async () => JSON.stringify({ data: { weekly_export_config: { export_locales: ['en'] } } }) }),
+          fulfill: async (o) => { rewritten = o.body; },
+          continue: async () => {}
+        });
+      }
+      if (respCb) await respCb({ url: () => 'https://soar.test/order/v1/report/generate_report', json: async () => ({ code: 0, data: { _id: 'TASK99' } }) });
+    },
+    waitForTimeout: async () => {},
+    close: async () => {}
+  };
+  let pollCalls = 0;
+  const fakeContext = {
+    newPage: async () => fakePage,
+    pages: () => [],
+    cookies: async () => [{ name: 'csrf_token', value: 'x' }],
+    request: { fetch: async () => ({ status: () => 200, ok: () => true, json: async () => ({ code: 0, data: { list: [{ task_id: 'TASK99', task_status: (++pollCalls >= 2 ? 1 : 0) }] } }) }) }
+  };
+  const fakeBrowser = { isConnected: () => true, newContext: async () => fakeContext, close: async () => {} };
+  pa.__setPlaywrightLoader(async () => ({ chromium: { launch: async () => fakeBrowser } }));
+  try {
+    const cmd = {
+      name: 'demo.export_ic',
+      interceptFlow: {
+        url: 'https://soar.test/report_edit.html#/x',
+        rewrite: [{ urlPattern: '/get_history_pwd', set: [{ path: 'data.weekly_export_config.export_locales', value: ['en', 'id'] }] }],
+        capture: [{ urlPattern: '/generate_report', extract: { taskId: 'data._id', code: 'code' } }],
+        waitMs: 200,
+        poll: { url: 'https://soar.test/order/v1/report/report_status', method: 'POST', body: {}, itemsPath: 'data.list', matchField: 'task_id', matchValue: '{{capture.taskId}}', readyField: 'task_status', readyValue: 1, intervalMs: 1, timeoutMs: 1000 }
+      }
+    };
+    const res = await executeInterceptFlow(cmd, {});
+    assert.equal(res.status, 'executed', JSON.stringify(res));
+    assert.equal(res.meta.taskId, 'TASK99');
+    assert.deepEqual(JSON.parse(rewritten).data.weekly_export_config.export_locales, ['en', 'id']);
+    assert.equal(res.meta.poll.ready, true);
+  } finally {
+    pa.__setPlaywrightLoader(null);
+    await pa.closePlaywright();
+    if (savedState === undefined) delete process.env.PLATFORM_COMMAND_STORAGE_STATE;
+    else process.env.PLATFORM_COMMAND_STORAGE_STATE = savedState;
+    if (savedUser === undefined) delete process.env.PLATFORM_COMMAND_USER_ID;
+    else process.env.PLATFORM_COMMAND_USER_ID = savedUser;
+    fs.rmSync(stateFile, { force: true });
+  }
+}
+console.log('intercept flow orchestration tests passed.');
+
+// --- TASK-004：daemon 核心（漏执行 / 并发 / 心跳 / schedule 加载） ---
+{
+  // 周报漏执行：区间内所有周三 10:00
+  const wHits = iterTriggerTimes({ weekday: 'WED', time: '10:00' }, 'weekly', new Date(2026, 5, 1, 0, 0), new Date(2026, 5, 16, 23, 59));
+  assert.ok(wHits.length >= 2, `expected >=2 weekly hits, got ${wHits.length}`);
+  assert.ok(wHits.every((d) => (d.getDay() + 6) % 7 === 2 && d.getHours() === 10 && d.getMinutes() === 0), 'all hits Wed 10:00');
+
+  // 月末边界 B-02：monthday=31 跨 2 月 → 取当月最后一天
+  const mHits = iterTriggerTimes({ monthday: 31, time: '09:00' }, 'monthly', new Date(2026, 0, 15), new Date(2026, 2, 15));
+  assert.equal(mHits.length, 2, `expected Jan31 + Feb28, got ${mHits.length}`);
+  assert.equal(mHits[0].getMonth(), 0); assert.equal(mHits[0].getDate(), 31);
+  assert.equal(mHits[1].getMonth(), 1); assert.equal(mHits[1].getDate(), 28);
+
+  // computeMissedJobs 汇总
+  const missed = computeMissedJobs(
+    [{ id: 'C1_weekly', command: 'mss.export_weekly', params: { companyId: 'C1' }, schedule: { weekday: 'WED', time: '10:00' }, kind: 'weekly' }],
+    new Date(2026, 5, 1), new Date(2026, 5, 16, 23, 59)
+  );
+  assert.equal(missed.length, 1);
+  assert.ok(missed[0].hits.length >= 2);
+
+  // 并发上限 B-01：6 任务 maxWorkers=2，峰值并发不超 2，全部执行
+  let active = 0, peak = 0, ran = 0;
+  const mkTask = () => async () => {
+    active += 1; peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 5));
+    ran += 1; active -= 1;
+    return 'ok';
+  };
+  const res = await runWithConcurrency(Array.from({ length: 6 }, mkTask), 2);
+  assert.equal(ran, 6);
+  assert.equal(res.filter((r) => r.ok).length, 6);
+  assert.ok(peak <= 2, `peak concurrency ${peak} must be <= 2`);
+
+  // 心跳读写
+  const hbFile = path.join(process.cwd(), '.tmp-heartbeat.txt');
+  const t = new Date(2026, 5, 15, 8, 30, 0);
+  writeHeartbeat(hbFile, t);
+  assert.equal(readHeartbeat(hbFile).getTime(), t.getTime());
+  assert.equal(readHeartbeat(path.join(process.cwd(), '.nope-hb.txt')), null);
+  fs.rmSync(hbFile, { force: true });
+
+  // schedule 加载（注入 readStoreDir）：store 配置 → 指向业务命令的条目
+  const entries = loadScheduleEntries('/x', 'mss', { weekly: 'mss.export_weekly', monthly: 'mss.export_monthly' }, () => ([
+    { key: 'C1', config: { weekly_schedule: { weekday: 'WED', time: '10:00' }, monthly_schedule: null } },
+    { key: 'C2', config: { monthly_schedule: { monthday: 1, time: '09:00' } } }
+  ]));
+  assert.equal(entries.length, 2);
+  const c1 = entries.find((e) => e.id === 'C1_weekly');
+  assert.equal(c1.command, 'mss.export_weekly');
+  assert.deepEqual(c1.params, { companyId: 'C1' });
+  const c2 = entries.find((e) => e.id === 'C2_monthly');
+  assert.equal(c2.command, 'mss.export_monthly');
+
+  // selectDueJobs：到点入队，但已 pending（队列中/执行中）的不重复入队（避免长任务期间重复触发）
+  const sdEntries = [{ id: 'C1_weekly', command: 'x', params: {}, schedule: { weekday: 'WED', time: '10:00' }, kind: 'weekly' }];
+  const wedAt10 = new Date(2026, 5, 10, 9, 0); // 2026-06-10 是周三；窗口跨过 10:00
+  const due1 = selectDueJobs(sdEntries, wedAt10, new Date(2026, 5, 10, 11, 0), new Set());
+  assert.equal(due1.length, 1);
+  const due2 = selectDueJobs(sdEntries, wedAt10, new Date(2026, 5, 10, 11, 0), new Set(['C1_weekly']));
+  assert.equal(due2.length, 0, 'pending job must not be re-enqueued');
+}
+console.log('daemon core tests passed.');
+
+// --- TASK-014 支撑：http_json extract 列表取单项（fromList/where/pick） ---
+{
+  const lpHttp = await import('node:http');
+  const lpServer = lpHttp.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ code: 0, data: { template_list: [
+      { template_id: 'W1', template_name: 'Weekly Security Report' },
+      { template_id: 'M1', template_name: 'Monthly Security Report' }
+    ] } }));
+  });
+  await new Promise((resolve) => lpServer.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = lpServer.address();
+    const data = await readDataSource({
+      type: 'http_json',
+      steps: [{
+        id: 'tpl',
+        request: { method: 'POST', url: `http://127.0.0.1:${port}/t`, body: {}, expect: { bodyCode: 0 } },
+        extract: {
+          weeklyId: { fromList: 'data.template_list', where: { template_name: 'Weekly Security Report' }, pick: 'template_id' },
+          monthlyId: { fromList: 'data.template_list', where: { template_name: 'Monthly Security Report' }, pick: 'template_id' },
+          missing: { fromList: 'data.template_list', where: { template_name: 'Nope' }, pick: 'template_id' }
+        }
+      }]
+    }, {});
+    assert.equal(data.meta.weeklyId, 'W1');
+    assert.equal(data.meta.monthlyId, 'M1');
+    assert.equal(data.meta.missing, undefined);
+  } finally {
+    await new Promise((resolve) => lpServer.close(resolve));
+  }
+}
+console.log('list-pick extract tests passed.');
+
+// --- TASK-015：workflow forEach 循环 + 末端输出汇总 ---
+{
+  const feDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-fe-'));
+  try {
+    // 子命令：返回客户列表（inline rows → return_json）
+    fs.writeFileSync(path.join(feDir, 'demo.colist.json'), JSON.stringify({
+      name: 'demo.colist', platform: 'demo', description: 'd', riskLevel: 'low', parameters: {},
+      dataSource: { type: 'inline', rows: [{ companyId: 'C1' }, { companyId: 'C2' }] },
+      output: { capability: 'return_json' }, steps: [{ id: 'x', type: 'manual', manual: 'list' }]
+    }));
+    // 子命令：按 companyId 读 store 配置（meta=config，缺失自动初始化）
+    fs.writeFileSync(path.join(feDir, 'demo.cocfg.json'), JSON.stringify({
+      name: 'demo.cocfg', platform: 'demo', description: 'd', riskLevel: 'low',
+      parameters: { companyId: { type: 'string', required: true } },
+      store: { op: 'read', key: '{{params.companyId}}', defaults: { tier: 'std', send_email: false } },
+      steps: [{ id: 'r', type: 'manual', manual: 'read' }]
+    }));
+    // 组合：搜客户 → forEach 逐个读配置 → return_json 汇总
+    fs.writeFileSync(path.join(feDir, 'demo.allcfg.json'), JSON.stringify({
+      name: 'demo.allcfg', platform: 'demo', description: 'batch', riskLevel: 'low', parameters: {},
+      strategy: 'sequential',
+      steps: [
+        { id: 'companies', command: 'demo.colist' },
+        { id: 'configs', forEach: '{{steps.companies.rows}}', as: 'co', command: 'demo.cocfg', dependsOn: ['companies'], params: { companyId: '{{co.companyId}}' } }
+      ],
+      output: { capability: 'return_json', title: 't', source: '{{steps.configs.rows}}' }
+    }));
+    const run = await executeCommand('demo.allcfg', {}, { dryRun: false, confirm: true, commandsDir: feDir });
+    assert.equal(run.status, 'executed', JSON.stringify(run));
+    assert.equal(run.capability, 'return_json');
+    assert.ok(Array.isArray(run.rows));
+    assert.equal(run.rows.length, 2, `expected 2 collected configs, got ${run.rows.length}`);
+    assert.equal(run.rows[0].tier, 'std');
+    // forEach 步在 store 写了两个客户配置
+    assert.ok(fs.existsSync(path.join(feDir, 'store', 'C1.json')) && fs.existsSync(path.join(feDir, 'store', 'C2.json')));
+  } finally {
+    fs.rmSync(feDir, { recursive: true, force: true });
+  }
+}
+console.log('workflow forEach tests passed.');
+
+// --- forEach 并发 + 失败不中止整批（批量导出场景） ---
+{
+  const bDir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-batch-'));
+  try {
+    // 子命令：companyId='BAD' 时验收失败，其余成功；记录并发峰值
+    fs.writeFileSync(path.join(bDir, 'demo.one.json'), JSON.stringify({
+      name: 'demo.one', platform: 'demo', description: 'd', riskLevel: 'low',
+      parameters: { companyId: { type: 'string', required: true } },
+      dataSource: { type: 'inline', rows: [] },
+      output: { capability: 'return_json' },
+      steps: [{ id: 'x', type: 'manual', manual: 'r' }]
+    }));
+    // 批量命令：forEach 并发 2 调 demo.one
+    fs.writeFileSync(path.join(bDir, 'demo.batch.json'), JSON.stringify({
+      name: 'demo.batch', platform: 'demo', description: 'b', riskLevel: 'low',
+      parameters: { ids: { type: 'array', required: true }, concurrency: { type: 'number', default: 2 } },
+      strategy: 'sequential',
+      steps: [{ id: 'batch', forEach: '{{params.ids}}', as: 'cid', concurrency: '{{params.concurrency}}', command: 'demo.one', params: { companyId: '{{cid}}' } }],
+      output: { capability: 'return_json', source: '{{steps.batch.rows}}' }
+    }));
+    const run = await executeCommand('demo.batch', { ids: ['C1', 'C2', 'C3', 'C4'], concurrency: 2 }, { dryRun: false, confirm: true, commandsDir: bDir });
+    assert.equal(run.status, 'executed');
+    assert.equal(run.rows.length, 4, '4 客户全部跑完（含失败也不中止）');
+    // 每行带来源 __item，便于追溯
+    assert.deepEqual(run.rows.map((r) => r.__item).sort(), ['C1', 'C2', 'C3', 'C4']);
+    assert.ok(run.rows.every((r) => r.__status === 'executed'));
+  } finally {
+    fs.rmSync(bDir, { recursive: true, force: true });
+  }
+
+  // runWithConcurrency 峰值并发不超上限（已在 daemon-core 覆盖，这里复测 utils 直接导出）
+  const { runWithConcurrency: rwc } = await import('../src/shared/utils.js');
+  let active = 0, peak = 0;
+  const tasks = Array.from({ length: 6 }, () => async () => { active++; peak = Math.max(peak, active); await new Promise((r) => setTimeout(r, 5)); active--; return 1; });
+  const res = await rwc(tasks, 3);
+  assert.equal(res.filter((r) => r.ok).length, 6);
+  assert.ok(peak <= 3, `peak ${peak} <= 3`);
+
+  // 失败不中止：一个 task 抛错，其余仍完成
+  const mixed = await rwc([async () => 1, async () => { throw new Error('boom'); }, async () => 3], 2);
+  assert.deepEqual(mixed.map((r) => r.ok), [true, false, true]);
+  assert.equal(mixed[1].error, 'boom');
+}
+console.log('forEach concurrency + batch tests passed.');
+
+// --- 闭合降级：自动发邮件收件人解析（平台 + added − removed）+ report_check 门控 ---
+{
+  // config_flags 派生：report_check 门控
+  assert.deepEqual(deriveConfigFlags({ report_check: false, send_email: true, sync_portal: false }), { autoSend: true, autoSync: false });
+  assert.deepEqual(deriveConfigFlags({ report_check: true, send_email: true, sync_portal: true }), { autoSend: false, autoSync: false });
+
+  // send_email_body：平台 [base1, base2] + added[add] − removed[base2] = [base1, add]
+  const ctx = {
+    params: { taskId: 'T', companyId: 'C', reportType: 'weekly', emailsAdded: { recipient: ['add@x.com'] }, emailsRemoved: { recipient: ['base2@x.com'] } },
+    steps: {
+      platRecipient: { list: [{ actual_data_value: { email_address: 'base1@x.com' } }, { actual_data_value: { email_address: 'base2@x.com' } }] },
+      platCc: { list: [{ actual_data_value: { email_address: 'cc1@x.com' } }] },
+      platBcc: { list: [{ actual_data_value: { email_address: 'bcc1@x.com' } }] },
+      subject: { subject: 'S' }, header: { header: 'H' }, push: { pushContent: 'P' }, sign: { sign: 'G' },
+      companyName: { companyName: 'Acme' }, attachments: { files: [{ _id: 'f1' }] }
+    }
+  };
+  const body = buildSendEmailBody(null, { context: ctx });
+  assert.deepEqual(body.accepter.map((a) => a.value), ['base1@x.com', 'add@x.com']);
+  // 回归：cc/bcc 默认空数组时仍取平台配置（修复前会被吞）
+  assert.deepEqual(body.ccer.map((a) => a.value), ['cc1@x.com']);
+  assert.deepEqual(body.bccer.map((a) => a.value), ['bcc1@x.com']);
+  assert.equal(body.email_subject, 'S');
+  assert.equal(body.email_content, 'H\nP\nG');
+  assert.deepEqual(body.attachments, ['f1']);
+  assert.equal(body.attachment_icon.value, 'Weekly Security Report');
+
+  // 显式 recipient 覆盖
+  const override = buildSendEmailBody(null, { context: { ...ctx, params: { ...ctx.params, recipient: ['only@x.com'] } } });
+  assert.deepEqual(override.accepter.map((a) => a.value), ['only@x.com']);
+
+  // 空收件人报错（不静默发空信）
+  assert.throws(() => buildSendEmailBody(null, { context: { params: { companyId: 'C' }, steps: { platRecipient: { list: [] } } } }), /未配置收件人/);
+}
+console.log('auto send-email recipient resolution tests passed.');
+
+// --- 闭合降级：sync_portal report_version 按 locale 自动拼（复刻 do_sync_portal） ---
+{
+  // 有小语种 → [locale, en]
+  assert.deepEqual(buildSyncPortalBody(null, { context: { params: { taskId: 'T', reportType: 2, locale: 'id' } } }),
+    { report_type: 2, task_id: 'T', report_version: ['id', 'en'] });
+  // 无小语种 → [en]
+  assert.deepEqual(buildSyncPortalBody(null, { context: { params: { taskId: 'T', reportType: 3, locale: '' } } }),
+    { report_type: 3, task_id: 'T', report_version: ['en'] });
+  // en 当小语种也归一为 [en]
+  assert.deepEqual(buildSyncPortalBody(null, { context: { params: { taskId: 'T', reportType: 2, locale: 'en' } } }).report_version, ['en']);
+  // 显式 reportVersion 覆盖
+  assert.deepEqual(buildSyncPortalBody(null, { context: { params: { taskId: 'T', reportType: 2, locale: 'id', reportVersion: ['de', 'en'] } } }).report_version, ['de', 'en']);
+}
+console.log('sync_portal report_version tests passed.');
+
+// --- 框架能力：本地登录态导入（session import-cookie / status） ---
+{
+  const stateFile = path.join(process.cwd(), '.tmp-session-state.json');
+  try {
+    // 未创建 → not ready
+    assert.equal(sessionStatus({ state: stateFile }).ready, false);
+    // import-cookie：cookie 串 → storageState
+    const r = importCookieState({ host: 'soar.sea.sangfor.com', cookie: 'sid=abc; csrf_token=tok; other=1', out: stateFile });
+    assert.equal(r.imported, true);
+    assert.equal(r.cookieCount, 3);
+    assert.equal(r.hasCsrf, true);
+    assert.ok(fs.existsSync(stateFile));
+    // 产出能被 readStorageState 接受 + status 就绪
+    const st = sessionStatus({ state: stateFile });
+    assert.equal(st.ready, true);
+    assert.deepEqual(st.hosts, ['soar.sea.sangfor.com']);
+    assert.equal(st.hasCsrf, true);
+    // --cookie-file：从文件读 cookie（避免超长 token 经命令行粘贴损坏），与 --cookie 等价
+    const ckFile = path.join(os.tmpdir(), `pc-ck-${process.pid}.txt`);
+    fs.writeFileSync(ckFile, 'sid=fff; csrf_token=ftok; soc-token=eyJ.a-b_c.sig\n');
+    const rf = importCookieState({ host: 'soar.sea.sangfor.com', cookieFile: ckFile, out: stateFile });
+    assert.equal(rf.cookieCount, 3);
+    assert.equal(rf.hasCsrf, true);
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).cookies.find((c) => c.name === 'soc-token').value, 'eyJ.a-b_c.sig');
+    fs.rmSync(ckFile, { force: true });
+    // 缺参数报错
+    assert.throws(() => importCookieState({ cookie: 'a=1' }), /需要 --host/);
+    assert.throws(() => importCookieState({ host: 'x' }), /需要 --cookie/);
+    assert.throws(() => importCookieState({ host: 'x', cookie: 'no-equals' }), /未解析到任何 cookie/);
+  } finally {
+    fs.rmSync(stateFile, { force: true });
+  }
+}
+console.log('session import tests passed.');
+
+// --- chromeLaunchOptions：系统 Chrome 开关（air-gapped 用） ---
+{
+  const pa2 = await import('../src/adapter/playwright_adapter.js');
+  const savedPath = process.env.PLATFORM_COMMAND_CHROME_PATH;
+  const savedCh = process.env.PLATFORM_COMMAND_CHROME_CHANNEL;
+  try {
+    delete process.env.PLATFORM_COMMAND_CHROME_PATH;
+    delete process.env.PLATFORM_COMMAND_CHROME_CHANNEL;
+    const baseOpts = pa2.chromeLaunchOptions({ headless: true });            // 不设 env
+    assert.equal(baseOpts.headless, true);
+    assert.ok(baseOpts.args.includes('--disable-gpu'), '默认禁用 GPU（沙箱无 GPU 会崩）');
+    // PLATFORM_COMMAND_CHROME_ARGS 追加自定义参数
+    process.env.PLATFORM_COMMAND_CHROME_ARGS = '--single-process --no-zygote';
+    const argv = pa2.chromeLaunchOptions({}).args;
+    assert.ok(argv.includes('--disable-gpu') && argv.includes('--single-process') && argv.includes('--no-zygote'), 'CHROME_ARGS 追加');
+    delete process.env.PLATFORM_COMMAND_CHROME_ARGS;
+    process.env.PLATFORM_COMMAND_CHROME_PATH = '/Applications/Google Chrome(MSS研发).app/Contents/MacOS/Google Chrome';
+    assert.equal(pa2.chromeLaunchOptions({ headless: true }).executablePath, '/Applications/Google Chrome(MSS研发).app/Contents/MacOS/Google Chrome');
+    delete process.env.PLATFORM_COMMAND_CHROME_PATH;
+    process.env.PLATFORM_COMMAND_CHROME_CHANNEL = 'chrome';
+    assert.equal(pa2.chromeLaunchOptions({ headless: true }).channel, 'chrome');
+    // path 优先于 channel
+    process.env.PLATFORM_COMMAND_CHROME_PATH = '/x/chrome';
+    const both = pa2.chromeLaunchOptions({});
+    assert.equal(both.executablePath, '/x/chrome');
+    assert.equal(both.channel, undefined);
+    // HEADLESS=false → 有头
+    delete process.env.PLATFORM_COMMAND_CHROME_PATH;
+    delete process.env.PLATFORM_COMMAND_CHROME_CHANNEL;
+    const savedHl = process.env.PLATFORM_COMMAND_HEADLESS;
+    process.env.PLATFORM_COMMAND_HEADLESS = 'false';
+    assert.equal(pa2.chromeLaunchOptions({ headless: true }).headless, false);
+    if (savedHl === undefined) delete process.env.PLATFORM_COMMAND_HEADLESS; else process.env.PLATFORM_COMMAND_HEADLESS = savedHl;
+  } finally {
+    if (savedPath === undefined) delete process.env.PLATFORM_COMMAND_CHROME_PATH; else process.env.PLATFORM_COMMAND_CHROME_PATH = savedPath;
+    if (savedCh === undefined) delete process.env.PLATFORM_COMMAND_CHROME_CHANNEL; else process.env.PLATFORM_COMMAND_CHROME_CHANNEL = savedCh;
+  }
+}
+console.log('chromeLaunchOptions tests passed.');
+
+// --- Plan B：cookieSessionFromState（storageState cookie → Cookie 头 + csrf，按 host 过滤） ---
+{
+  const { cookieSessionFromState } = await import('../src/engine/capabilities.js');
+  const cookies = [
+    { name: 'csrf_token', value: 'C1', domain: 'soar.sea.sangfor.com' },
+    { name: 'soc-token', value: 'S1', domain: '.sangfor.com' },   // 父域命中
+    { name: 'other', value: 'X', domain: 'example.com' }          // 异域排除
+  ];
+  const r = cookieSessionFromState(cookies, 'soar.sea.sangfor.com');
+  assert.ok(r.cookieHeader.includes('csrf_token=C1') && r.cookieHeader.includes('soc-token=S1'));
+  assert.ok(!r.cookieHeader.includes('other=X'));
+  assert.equal(r.csrfToken, 'C1');
+  assert.deepEqual(cookieSessionFromState([], 'x.com'), { cookieHeader: '', csrfToken: '' });
+}
+console.log('cookieSessionFromState tests passed.');
+
+// --- download_report 二进制下载 + 文件名解析 ---
+{
+  const { parseDownloadFilename } = await import('../src/engine/data_sources.js');
+  assert.equal(parseDownloadFilename("attachment;filename*=UTF-8''%E5%91%A8%E6%8A%A5.xlsx"), '周报.xlsx');
+  assert.equal(parseDownloadFilename('attachment; filename="report.zip"'), 'report.zip');
+  assert.equal(parseDownloadFilename(''), null);
+
+  const dr = verifyCommand('mss.download_report');
+  assert.ok(dr.ok, 'download_report verify: ' + JSON.stringify(dr.errors));
+  const { command: drCmd } = loadCommand('mss.download_report');
+  assert.equal(drCmd.output.capability, 'download');
+  assert.ok(getExecutionCapability(drCmd).executable);
+}
+console.log('download_report tests passed.');
+
+// --- interceptFlow 一套代码回归 + pollUntilReady 快照差集兜底 ---
+{
+  // export_report 仍是 interceptFlow（一套代码，未被分叉成 store_op）
+  const { command: er } = loadCommand('mss.export_report');
+  assert.ok(er.interceptFlow && er.interceptFlow.capture, 'export_report 应保留 interceptFlow');
+  assert.equal(er.interceptFlow.poll.matchField, 'task_id');
+  // export_weekly 仍是完整组合（含 send/sync 全自动）
+  const { command: ew } = loadCommand('mss.export_weekly');
+  assert.deepEqual(ew.steps.map((s) => s.id), ['cfg', 'tpl', 'loc', 'export', 'send', 'sync']);
+
+  const { pollUntilReady } = await import('../src/engine/intercept_executor.js');
+  const list = (rows) => async () => ({ data: { list: rows } });
+  // 1) 有 matchValue：按 task_id 精确命中并就绪
+  let r = await pollUntilReady(list([{ task_id: 'T1', task_status: 1 }]), { matchValue: 'T1', matchField: 'task_id', readyField: 'task_status', readyValue: 1, intervalMs: 1, timeoutMs: 50 });
+  assert.ok(r.ready && r.task.task_id === 'T1' && !r.viaFallback);
+  // 2) 无 matchValue + 快照差集：旧行(在快照里)被排除，只认新增且就绪的 T2
+  r = await pollUntilReady(list([{ task_id: 'OLD', task_status: 1 }, { task_id: 'T2', task_status: 1 }]), { matchValue: '', excludeIds: ['OLD'], matchField: 'task_id', readyField: 'task_status', readyValue: 1, intervalMs: 1, timeoutMs: 50 });
+  assert.ok(r.ready && r.task.task_id === 'T2' && r.viaFallback, '应经差集兜底命中新行 T2');
+  // 3) 新增行尚未就绪 → 不误判，超时
+  r = await pollUntilReady(list([{ task_id: 'OLD', task_status: 1 }, { task_id: 'T3', task_status: 0 }]), { matchValue: '', excludeIds: ['OLD'], matchField: 'task_id', readyField: 'task_status', readyValue: 1, intervalMs: 1, timeoutMs: 30 });
+  assert.ok(!r.ready && r.timedOut, '新行未就绪应继续等而非误判');
+}
+console.log('interceptFlow one-codebase + pollUntilReady fallback tests passed.');

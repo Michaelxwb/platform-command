@@ -1,0 +1,48 @@
+{
+  "name": "mss.update_email",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：维护客户邮箱增删 delta（store 的 weekly/monthly × added/removed × recipient/cc/bcc）。emails 参数为合并后的完整 delta 对象（数组增删的最终结果由 agent 先 display_config 读现状后算好再传入，store 合并即替换该字段）。这是改邮箱的唯一入口（RULE-05），收件人=平台邮箱+added-removed（RULE-06）。",
+  "riskLevel": "medium",
+  "parameters": {
+    "companyId": {
+      "type": "string",
+      "required": true,
+      "description": "客户 ID（store key）。"
+    },
+    "emails": {
+      "type": "object",
+      "required": true,
+      "description": "邮箱 delta 对象，仅含要更新的字段，如 {\"weekly_emails_added\":{\"recipient\":[\"a@x.com\"],\"cc\":[],\"bcc\":[]}}。每个字段为合并后的完整数组（agent 基于现状算好）。"
+    }
+  },
+  "store": {
+    "op": "merge",
+    "key": "{{params.companyId}}",
+    "patch": "{{params.emails}}"
+  },
+  "steps": [
+    {
+      "id": "merge",
+      "type": "manual",
+      "manual": "把 emails delta 合并进 store/<companyId>.json（由 store 引擎执行）。收件人最终 = 平台邮箱 + added − removed，由发送/展示侧解析。"
+    }
+  ],
+  "successCriteria": [
+    "能更新客户邮箱 delta 字段并持久化。",
+    "仅本命令可改邮箱（RULE-05）。"
+  ],
+  "checks": ["dry-run 展示 store merge 计划，patch 来自 params.emails。"],
+  "failureCases": ["emails 非对象。", "companyId 为空。"],
+  "naturalLanguage": {
+    "intent": "增删 MSS 客户报告邮箱。",
+    "aliases": ["新增收件人", "删除抄送", "改邮箱", "邮箱增删"],
+    "match": { "any": ["收件人", "抄送", "密送", "邮箱"], "verbs": ["新增", "删除", "添加", "去掉"] },
+    "extract": {
+      "companyId": {
+        "type": "after",
+        "pattern": "(?:company_?id|客户id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)"
+      }
+    },
+    "examples": ["给客户 123 的周报新增收件人 a@test.com"]
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "mss.update_config",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：修改客户本地配置（报告范围/检查开关/发邮开关/同步开关）。config 参数为只含待改字段的对象，合并进 store（缺失则先按默认初始化）。只改用户明确给出的字段。邮箱增删走 mss.update_email、定时走 mss.set_schedule（RULE-05），勿用本命令改邮箱。company_id 由 agent 先用 mss.search_company 解析。",
+  "riskLevel": "medium",
+  "parameters": {
+    "companyId": {
+      "type": "string",
+      "required": true,
+      "description": "客户 ID（store key）。"
+    },
+    "config": {
+      "type": "object",
+      "required": true,
+      "description": "待修改字段对象，仅含要改的项。合法字段：weekly_range_type(Last 7 days|Last week)、monthly_range_type(Last month|Last 30 days)、report_check(bool)、send_email(bool)、sync_portal(bool)、company_name。"
+    }
+  },
+  "store": {
+    "op": "merge",
+    "key": "{{params.companyId}}",
+    "patch": "{{params.config}}",
+    "defaults": {
+      "company_name": "",
+      "weekly_range_type": "Last week",
+      "monthly_range_type": "Last month",
+      "report_check": false,
+      "send_email": false,
+      "sync_portal": false,
+      "weekly_emails_added": { "recipient": [], "cc": [], "bcc": [] },
+      "weekly_emails_removed": { "recipient": [], "cc": [], "bcc": [] },
+      "monthly_emails_added": { "recipient": [], "cc": [], "bcc": [] },
+      "monthly_emails_removed": { "recipient": [], "cc": [], "bcc": [] },
+      "weekly_schedule": null,
+      "monthly_schedule": null
+    }
+  },
+  "steps": [
+    {
+      "id": "merge",
+      "type": "manual",
+      "manual": "将 config 合并进 store/<companyId>.json（缺失先按 defaults 初始化），返回合并后配置（由 store 引擎执行）。"
+    }
+  ],
+  "successCriteria": [
+    "能把 config 中的字段合并进客户配置并持久化。",
+    "只改用户明确给出的字段，其余保持不变。"
+  ],
+  "checks": [
+    "dry-run 展示 store merge 计划，patch 来自 params.config。"
+  ],
+  "failureCases": ["config 非对象。", "companyId 为空。"],
+  "naturalLanguage": {
+    "intent": "修改 MSS 客户配置。",
+    "aliases": ["修改配置", "更新配置", "改配置"],
+    "match": { "all": ["配置"], "verbs": ["修改", "更新", "改"] },
+    "extract": {
+      "companyId": {
+        "type": "after",
+        "pattern": "(?:company_?id|客户id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)"
+      }
+    },
+    "examples": ["把客户 123 的同步portal改成是"]
+  }
+}

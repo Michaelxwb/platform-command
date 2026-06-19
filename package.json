@@ -4,16 +4,16 @@
   "description": "MCP-first command framework for reusable platform operations with extensible JSON commands.",
   "type": "module",
   "bin": {
-    "platform-command": "./dist/src/cli.js"
+    "platform-command": "./dist/src/entry/cli.js"
   },
   "scripts": {
     "test": "node dist/tests/run-tests.js",
-    "verify:demo": "node dist/src/cli.js verify --command demo.search_example",
-    "dry-run:demo": "node dist/src/cli.js execute --command demo.search_example --dry-run keyword=abc",
-    "verify:workflow": "node dist/src/cli.js verify --command demo.workflow_example",
-    "dry-run:workflow": "node dist/src/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5",
-    "mcp": "node dist/src/cli.js mcp",
-    "list": "node dist/src/cli.js list --json",
+    "verify:demo": "node dist/src/entry/cli.js verify --command demo.search_example",
+    "dry-run:demo": "node dist/src/entry/cli.js execute --command demo.search_example --dry-run keyword=abc",
+    "verify:workflow": "node dist/src/entry/cli.js verify --command demo.workflow_example",
+    "dry-run:workflow": "node dist/src/entry/cli.js execute --command demo.workflow_example --dry-run keyword=abc limit=5",
+    "mcp": "node dist/src/entry/cli.js mcp",
+    "list": "node dist/src/entry/cli.js list --json",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "prepack": "npm run build && npm test"

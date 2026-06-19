@@ -1,0 +1,62 @@
+{
+  "name": "mss.get_template",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：获取周报/月报模板的 template_id 与 template_name（template_list 接口 + 按名称取单项）。返回 weeklyId/weeklyName/monthlyId/monthlyName，供导出拼 URL。只读。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台会话；401/403 或非 0 code 时刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/shared/api.py:get_report_templates",
+    "notes": [
+      "接口：POST /order/v1/report/template_list，body={template_format:''}，返回 data.template_list[]（含 template_id/template_name）。",
+      "周报名 Weekly Security Report / 月报名 Monthly Security Report。"
+    ]
+  },
+  "parameters": {},
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 报告模板",
+    "steps": [
+      {
+        "id": "templates",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/template_list",
+          "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "body": { "template_format": "" },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": {
+          "weeklyId": { "fromList": "data.template_list", "where": { "template_name": "Weekly Security Report" }, "pick": "template_id" },
+          "weeklyName": { "fromList": "data.template_list", "where": { "template_name": "Weekly Security Report" }, "pick": "template_name" },
+          "monthlyId": { "fromList": "data.template_list", "where": { "template_name": "Monthly Security Report" }, "pick": "template_id" },
+          "monthlyName": { "fromList": "data.template_list", "where": { "template_name": "Monthly Security Report" }, "pick": "template_name" }
+        }
+      }
+    ]
+  },
+  "steps": [
+    { "id": "get", "type": "manual", "manual": "POST template_list 并按名称取周报/月报模板 id/name，return_json 返回（由 dataSource + output 执行）。" }
+  ],
+  "output": { "capability": "return_json", "title": "MSS 报告模板" },
+  "successCriteria": ["能返回周报/月报模板的 id 与 name。", "只读。"],
+  "checks": ["dry-run 展示 template_list 计划，extract 含 list-pick。"],
+  "failureCases": ["未登录或会话过期 401/403 或非 0 code。"],
+  "naturalLanguage": {
+    "intent": "获取报告模板。",
+    "aliases": ["报告模板", "模板列表"],
+    "match": { "all": ["模板"], "verbs": ["获取", "查询", "查看"] },
+    "extract": {},
+    "examples": ["获取报告模板"]
+  }
+}

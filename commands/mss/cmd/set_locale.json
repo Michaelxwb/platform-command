@@ -1,0 +1,105 @@
+{
+  "name": "mss.set_locale",
+  "platform": "mss",
+  "description": "MSS 海外报告平台：修改客户小语种配置（report config MODIFY，后台固定 report_type=12）。先 GET 当前配置，经 code/locale_modify.js 清洗 logo + 兜底 module_list，再 POST 修改。locale 为语种代码（id=印尼语/de=德语/th=泰语/空=清空，自然语言→代码由 agent 映射）。不支持的语种由平台返回错误，原样回传（B-03）。",
+  "riskLevel": "medium",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台浏览器会话；401/403 或非 0 code 时刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "observedAt": "2026-06-15",
+    "provider": "converted_from_mss-report-skill/shared/api.py:modify_locale_config",
+    "notes": [
+      "先 POST config?_method=GET 取 channel_id/module_list/logo；再 POST config?_method=MODIFY。",
+      "MODIFY body 需清洗 logo（sangfor_logo 去 url、channel_logo 去 name/id/url）、module_list 缺失用默认值兜底——经 code/locale_modify.js（body 变换钩子）构造。",
+      "local_locale: id/de/th/空('' 清空)；report_type 固定 12。"
+    ]
+  },
+  "parameters": {
+    "companyId": {
+      "type": "string",
+      "required": true,
+      "description": "客户 ID（由 mss.search_company 取得）。"
+    },
+    "locale": {
+      "type": "string",
+      "required": true,
+      "enum": ["id", "de", "th", ""],
+      "description": "小语种代码：id=印尼语 / de=德语 / th=泰语 / 空字符串=清空。自然语言→代码由 agent 映射。"
+    }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "MSS 改小语种：{{params.companyId}} -> {{params.locale}}",
+    "steps": [
+      {
+        "id": "current",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/config?_method=GET",
+          "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "body": { "company_id": "{{params.companyId}}", "report_type": 12 },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": {
+          "channelId": "data.channel_id",
+          "moduleList": "data.module_list",
+          "logo": "data.logo"
+        }
+      },
+      {
+        "id": "modify",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/config?_method=MODIFY",
+          "headers": { "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-csrftoken": "{{session.csrfToken}}" },
+          "body": {},
+          "bodyBuilder": { "module": "./code/locale_modify.js", "export": "buildBody" },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": { "code": "code", "message": "msg" }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "modify",
+      "type": "manual",
+      "manual": "GET 当前配置 → locale_modify.js 构造 MODIFY 体（清洗 logo + module_list 兜底）→ POST 修改（由 dataSource + bodyBuilder 执行）。"
+    }
+  ],
+  "output": {
+    "capability": "return_json",
+    "title": "MSS 改小语种结果：{{params.companyId}}"
+  },
+  "successCriteria": [
+    "能 GET 当前配置并构造合法 MODIFY 体（logo 清洗 + module_list 兜底）后修改成功（code=0）。"
+  ],
+  "checks": [
+    "dry-run 展示 GET + MODIFY 两步计划，MODIFY 带 bodyBuilder。"
+  ],
+  "failureCases": [
+    "未登录或会话过期 401/403 或非 0 code。",
+    "平台不支持该语种时返回错误，原样回传（B-03）。"
+  ],
+  "naturalLanguage": {
+    "intent": "修改 MSS 客户小语种。",
+    "aliases": ["改小语种", "设置小语种"],
+    "match": { "all": ["小语种"], "verbs": ["修改", "改", "设置"] },
+    "extract": {
+      "companyId": {
+        "type": "after",
+        "pattern": "(?:company_?id|客户id)\\s*(?:是|为|=|:|：)?\\s*([A-Za-z0-9_-]+)"
+      }
+    },
+    "examples": ["把客户 123 的小语种改成印尼语"]
+  }
+}

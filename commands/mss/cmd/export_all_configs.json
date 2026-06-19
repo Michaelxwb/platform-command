@@ -1,0 +1,64 @@
+{
+  "name": "mss.export_all_configs",
+  "platform": "mss",
+  "description": "MSS 批量配置汇总（workflow 组合 + forEach）：按 keyword 搜客户（留空=全部）→ 逐客户读配置（不存在自动初始化）→ 汇总导出 Excel。供运营批量查看所有/多个客户配置。导出后可由 agent/daemon notifier 推送话术与文件。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台会话；401/403 时刷新登录态，不要自动重试。"
+  },
+  "parameters": {
+    "keyword": { "type": "string", "required": false, "default": "", "description": "客户过滤关键词，留空=全部客户。" },
+    "outputPath": { "type": "string", "required": false, "default": "runs/mss_all_configs.xlsx", "description": "导出 Excel 路径。" }
+  },
+  "strategy": "sequential",
+  "steps": [
+    {
+      "id": "companies",
+      "command": "mss.search_company",
+      "params": { "keyword": "{{params.keyword}}", "limit": 1000 }
+    },
+    {
+      "id": "configs",
+      "forEach": "{{steps.companies.rows}}",
+      "as": "co",
+      "command": "mss.display_config",
+      "dependsOn": ["companies"],
+      "params": { "companyId": "{{co.companyId}}" }
+    }
+  ],
+  "output": {
+    "capability": "export_excel",
+    "path": "{{params.outputPath}}",
+    "title": "MSS 客户配置汇总",
+    "source": "{{steps.configs.rows}}",
+    "columns": [
+      { "key": "company_name", "title": "客户" },
+      { "key": "weekly_range_type", "title": "周报范围" },
+      { "key": "monthly_range_type", "title": "月报范围" },
+      { "key": "report_check", "title": "需检查" },
+      { "key": "send_email", "title": "自动发邮" },
+      { "key": "sync_portal", "title": "自动同步" }
+    ]
+  },
+  "successCriteria": [
+    "能搜客户并逐客户汇总配置导出 Excel（缺失配置自动初始化）。"
+  ],
+  "checks": ["dry-run 展示 workflow 计划（含 forEach 步）。"],
+  "failureCases": ["未登录或会话过期。", "任一子步失败中止回传。"],
+  "naturalLanguage": {
+    "intent": "批量汇总客户配置导出 Excel。",
+    "aliases": ["查看所有客户配置", "批量查看配置", "配置汇总"],
+    "match": { "all": ["配置"], "any": ["所有", "全部", "批量"], "verbs": ["查看", "汇总", "导出"] },
+    "extract": {
+      "keyword": { "type": "after", "pattern": "(?:关键词|客户)\\s*(?:是|为|=|:|：)?\\s*([^，。；,;]+)" }
+    },
+    "examples": ["查看所有客户配置", "汇总导出客户配置"]
+  }
+}
