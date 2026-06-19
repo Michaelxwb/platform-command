@@ -30,7 +30,7 @@
 - 请求头 `X-Csrftoken` 取自 `csrf_token` cookie（`{{session.csrfToken}}`）。401/403 或非 0 code 刷新登录态，命令不自动重试。
 
 > **一套代码、一套配置，两种部署环境（差异仅"补 chromium"一项）：**
-> - **生产**：Docker 容器（headless），镜像自带 chromium，全自动（含 daemon 定时导出）。
+> - **生产**：Docker 容器（headless），镜像自带 chromium，导出开箱即用；周/月定时由容器内 GA 调度框架驱动（非 platform-command daemon）。
 > - **调试沙箱**：本身直连 soar（**无需代理**）。沙箱缺 bundled chromium——**手动补一次**：把 Playwright 标准 chromium 拷进共享项目目录、设 `PLAYWRIGHT_BROWSERS_PATH`（见「导出在沙箱」）。除此之外，命令/配置/代码与生产完全一致。
 
 ## 命令清单（19）
@@ -64,7 +64,7 @@
 |---|---|
 | `mss.export_report companyId= reportType= templateId= templateName= rangeType= exportConfigKey= [locale=]` | 单步导出（interceptFlow：改写 export_locales + 抓 task_id + 轮询；抓不到走 report_status 快照差集兜底） |
 | `mss.download_report taskId= [outputPath=]` | 下载已生成报告文件（`GET report_download?task_id`，二进制落地；纯 node） |
-| `mss.export_weekly companyId=` | 周报组合：配置→模板→小语种→导出→（按开关）同步；可 daemon 定时 |
+| `mss.export_weekly companyId=` | 周报组合：配置→模板→小语种→导出→（按开关）同步；可被调度框架定时触发 |
 | `mss.export_monthly companyId=` | 月报组合（同上） |
 | `mss.export_all_configs [keyword= outputPath=]` | 批量汇总客户配置 → Excel |
 
@@ -151,7 +151,7 @@ export PLATFORM_COMMAND_STORAGE_STATE=$PWD/.platform-command/storage-state.json
 ⑤ 轮询 report_status 至 task_status==1（≤30min，RULE-07）
 ```
 
-`export_weekly/monthly` 在此之上组合：配置→模板→小语种→导出→（按开关）发邮件/同步；可由 daemon 定时全自动。
+`export_weekly/monthly` 在此之上组合：配置→模板→小语种→导出→（按开关）发邮件/同步；可由调度框架定时触发（容器内走 GA，见「定时导出」）。
 
 **小语种零降级（前端 i18n）**：翻译/图片是前端静态资源（`/ui-report/static/remote/<code>/`，code=`th/id/de/it`…），SPA 按 `export_locales` 加载渲染。interceptFlow 的 `page.route` 改写 `get_history_pwd` 响应的 `export_locales=[en,<code>]`（`export_locales.js`）即注入小语种——**无后端 API，靠拦截**。`mss.set_locale` 设的是 `local_locale`（客户报告语种配置），与导出语种是两回事。
 
@@ -159,7 +159,7 @@ export PLATFORM_COMMAND_STORAGE_STATE=$PWD/.platform-command/storage-state.json
 
 ### 导出在沙箱（仅此一项与生产不同：手动补 chromium）
 
-生产 Docker 镜像自带 chromium，导出开箱即用、可 daemon 定时。调试沙箱本身直连 soar 但**没 bundled chromium**，补一次即可：
+生产 Docker 镜像自带 chromium，导出开箱即用（定时见下「调度」）。调试沙箱本身直连 soar 但**没 bundled chromium**，补一次即可：
 
 ```bash
 # 1) 项目目录共享：把 Playwright 标准 chromium 拷进 <项目>/.pw-browsers/（已 .gitignore）
@@ -172,19 +172,23 @@ export PLATFORM_COMMAND_STORAGE_STATE=$PWD/.platform-command/storage-state.json
 ```
 > 不用代理（沙箱直连 soar）、不用 managed Chrome（executablePath 实测不稳）、不用 chrome-mcp——就用 Playwright 标准 chromium，与生产同一套代码。
 
-## 调度 daemon
+## 定时导出
 
-通用调度守护进程（平台无关，认命令名）：
+定时由**调用方调度框架**驱动，到点执行 `mss.export_weekly` / `mss.export_monthly`——这两条命令本身已是全链（配置→模板→小语种→导出→按开关同步/邮件），调度方只负责"到点触发"。
+
+### 生产 Docker：走 GA 调度框架（容器内默认形态）
+
+容器内由 **GenericAgent 的 scheduled_task 框架**承载定时（entrypoint 已注入 `scheduled_task_sop.md` 指引）：建 `sche_tasks` 任务，到点调 `pc-exec mss.export_weekly companyId=<ID>`，结果由框架自动推送回创建者 IM。`mss.set_schedule` 写 store 的 `weekly_schedule`/`monthly_schedule` 仅作**业务侧排期记录**，不在容器内被 platform-command 自身扫描执行。
+
+### 本地 / 独立部署：platform-command 自带 daemon（非标准容器形态）
 
 ```
-platform-command daemon start [--max-workers 3]   # 常驻：读 store schedule，到点调 export_weekly/monthly
+platform-command daemon start [--max-workers 3]   # 常驻：扫 store schedule，到点调 export_weekly/monthly
 platform-command daemon status
 platform-command daemon stop
 ```
 
-能力：worker 池并发、心跳文件、重启时**漏执行回放**（停机期间应触发的任务）、可插拔 notifier（企业微信 webhook，`PLATFORM_COMMAND_WEBHOOK_URL`）。`mss.set_schedule` 写 store 的 schedule 字段，daemon 扫描时注册。
-
-> 生产 Docker（镜像自带 chromium）下 daemon 可**无人值守定时导出**（export_weekly/monthly 全链，Playwright headless）。调试沙箱需先按「导出在沙箱」补好 chromium + storageState，daemon 同样能跑导出。
+能力：worker 池并发、心跳文件、重启时**漏执行回放**、可插拔 notifier（企业微信 webhook，`PLATFORM_COMMAND_WEBHOOK_URL`），扫 `mss.set_schedule` 写的 schedule 字段注册。**标准容器不启动它**（容器排期走上面的 GA 框架）；仅在没有 GA 调度层的本地/独立部署时使用，需自备 storageState + chromium。
 
 ## 平台操作铁律（SOP）— agent 必须遵守
 

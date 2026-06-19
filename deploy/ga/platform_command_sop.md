@@ -75,6 +75,17 @@ const { chromium } = require("playwright");
 - **禁止读取 `/secrets/` 下的任何文件**（登录态只能由 platform-command 适配器使用）；
 - 凡是 platform-command 已覆盖的平台操作（见上方"铁律"），**必须走 platform-command**，失败也不准用脚本代偿；headless Chromium 只用于无 command 覆盖的匿名浏览/截图。
 
+## MSS 报告平台（mss.* 命令）补充
+
+MSS 命令（`mss.export_weekly`/`export_monthly`/`send_email`/`search_company`/`set_schedule` 等）也走上面的统一规则，另有两点容器特有约定：
+
+- **登录态**：MSS 命令需 soar 登录态（storageState）。失效时命令会返回 401/403 或"登录态已失效"——**原样转告用户重新导入**（管理员侧 `import-storage-state.sh`），不要自己抓包或重试。
+- **周/月定时导出走 GA 调度框架，不要起 platform-command 自带 daemon**：
+  用户要"每周/每月定时导出并发我"时，按 `../memory/scheduled_task_sop.md` 在 `../sche_tasks/` 建任务，到点调
+  `pc-exec mss.export_weekly companyId=<ID>`（或 `mss.export_monthly`）即可，结果由框架自动推送回创建者 IM。
+  **不要执行 `platform-command daemon start`**——那是本地/独立部署形态，容器内的定时一律走 GA scheduled_task。
+  （`mss.set_schedule` 只把排期写进业务 store 做记录，不在容器内自动触发。）
+
 ## 文件路径约定
 
 - 导出/输出文件写到 `/data/platform/output/` 下（其他路径会被沙箱拒绝）。
