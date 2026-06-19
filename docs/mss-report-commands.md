@@ -224,10 +224,10 @@ platform-command daemon stop
 
 | 模块 | 能力 |
 |---|---|
-| `src/store.ts` | 平台 store 层（`commands/<platform>/store/`，CRUD+原子写+越界防护） |
-| `src/store_command.ts` | `store:{op}` 命令引擎（read/merge/init/delete + 自动初始化） |
-| `src/workflow_executor.ts` | 组合执行引擎（command step + 参数管道 + when + forEach + 失败中止 + 末端输出） |
-| `data_sources.ts` | 请求体 `bodyBuilder` 钩子；`extract:{fromList,where,pick}`；**`responseType:"binary"` 二进制下载 + `parseDownloadFilename`** |
-| `capabilities.ts` | **`download` 输出能力**（存二进制响应到文件，按 content-disposition 文件名；响应非二进制则原样回传） |
-| `src/intercept_executor.ts` | 浏览器拦截引擎（`interceptFlow`：route 改写 export_locales + 捕获 task_id + 轮询）；**capture 抓不到时走 `report_status` 快照差集兜底**（监听前置 + 新增且就绪行回填 task_id） |
-| `src/daemon.ts` | 通用调度 daemon（并发/心跳/漏执行/通知）+ CLI |
+| `src/io/store.ts` | 平台 store 层（`commands/<platform>/store/`，CRUD+原子写+越界防护） |
+| `src/engine/store_command.ts` | `store:{op}` 命令引擎（read/merge/init/delete + 自动初始化） |
+| `src/engine/workflow_executor.ts` | 组合执行引擎（command step + 参数管道 + when + forEach + 失败中止 + 末端输出） |
+| `src/engine/data_sources.ts` | 请求体 `bodyBuilder` 钩子；`extract:{fromList,where,pick}`；**`responseType:"binary"` 二进制下载 + `parseDownloadFilename`** |
+| `src/engine/capabilities.ts` | **`download` 输出能力**（存二进制响应到文件，按 content-disposition 文件名；响应非二进制则原样回传） |
+| `src/engine/intercept_executor.ts` | 浏览器拦截引擎（`interceptFlow`：route 改写 export_locales + 捕获 task_id + 轮询）；**capture 抓不到时走 `report_status` 快照差集兜底**（监听前置 + 新增且就绪行回填 task_id） |
+| `src/schedule/daemon.ts` | 通用调度 daemon（并发/心跳/漏执行/通知）+ CLI |
