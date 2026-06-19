@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    :root { color-scheme: light; }
+    body { width: 360px; margin: 0; padding: 16px; font: 13px/1.5 -apple-system, system-ui, "PingFang SC", sans-serif; color: #1f2937; background: #f8fafc; }
+    h1 { font-size: 17px; margin: 0 0 14px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+    .card h2 { font-size: 12px; font-weight: 600; color: #6b7280; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .03em; }
+    .status { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #10b981; flex: none; }
+    .meta { color: #6b7280; margin-top: 6px; font-size: 12px; }
+    .meta code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+    label { display: block; font-weight: 600; margin: 0 0 6px; font-size: 12px; }
+    textarea, input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 7px; font: inherit; }
+    textarea { height: 92px; resize: vertical; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+    .hint { color: #9ca3af; font-size: 11px; margin: 6px 0 0; }
+    .row { display: flex; gap: 8px; margin-top: 4px; }
+    button { flex: 1; padding: 9px 12px; border: 0; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+    #save { background: #2563eb; color: #fff; }
+    #exportNow { background: #eef2ff; color: #3730a3; }
+    button:active { transform: translateY(1px); }
+    #toast { min-height: 18px; margin-top: 10px; font-size: 12px; color: #059669; }
+  </style>
+</head>
+<body>
+  <h1>platform-command 会话导出</h1>
+
+  <div class="card">
+    <h2>运行状态</h2>
+    <div class="status"><span class="dot"></span><span id="stateText">监控中</span></div>
+    <div class="meta" id="lastExport">尚未导出</div>
+    <div class="meta" id="outPath"></div>
+  </div>
+
+  <div class="card">
+    <label for="domains">监控域名（每行一个 host，须与命令请求的 host 一致）</label>
+    <textarea id="domains" placeholder="soar.sea.sangfor.com&#10;soar.sangfor.com.cn&#10;zhihu.com"></textarea>
+    <p class="hint">只填 host，不要带 https:// 或路径。填父域会连子域一起匹配。</p>
+
+    <label for="filename" style="margin-top:12px;">输出文件名（相对 Downloads）</label>
+    <input id="filename" type="text" placeholder="platform-command/storage-state.json" />
+
+    <div class="row">
+      <button id="save">保存</button>
+      <button id="exportNow">立即导出</button>
+    </div>
+    <div id="toast"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

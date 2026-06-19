@@ -73,6 +73,10 @@ MCP server 当前提供 10 个 tools：
 
 > 如果你的 Agent 运行环境找不到全局命令，也可以把 `command` 改成 `npx`，`args` 改成 `["@jahanxu/platform-command", "mcp"]`。业务 commands 可以通过 `PLATFORM_COMMANDS_DIR` 注入。
 
+## 配套：浏览器会话扩展
+
+需要登录态的平台命令（如导出报表）吃一份 Playwright `storageState`。仓库内置配套的 Chrome 扩展 **[browser-extension/](browser-extension/)**：加载后在弹窗里配置监控域名，登录目标站点即自动把会话（含 httpOnly cookie）导出为 storageState，覆盖写入固定文件。把 MCP server 的 `PLATFORM_COMMAND_STORAGE_STATE` 指向该文件，调用命令时框架按目标 host 自动挑对应平台的 cookie——无需手动 `session import-cookie`。用法见 [browser-extension/README.md](browser-extension/README.md)。
+
 ## 服务器多用户部署
 
 把一套环境部署到服务器供多人使用、每人操作互相独立（每用户一个容器，绑定各自的
@@ -196,6 +200,7 @@ platform-command/
 ├── platforms/                       # 平台资料与约束
 ├── templates/                       # command/profile 模板文件
 ├── examples/                        # 使用示例与外部 command 示例
+├── browser-extension/               # 配套 Chrome 扩展：导出登录态为 storageState
 ├── docs/                            # 文档
 └── tests/                           # 本地测试
 ```

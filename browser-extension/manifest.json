@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "platform-command session exporter",
+  "version": "2.0",
+  "description": "监控配置域名的 Cookie 变化，自动导出为 platform-command 可用的 Playwright storageState（覆盖最新会话）。",
+  "permissions": [
+    "cookies",
+    "storage",
+    "downloads",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "platform-command 会话导出",
+    "default_popup": "popup.html"
+  }
+}

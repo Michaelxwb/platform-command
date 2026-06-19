@@ -39,6 +39,7 @@
     "templates/",
     "docs/",
     "examples/",
+    "browser-extension/",
     "README.md",
     "SKILL.md",
     "LICENSE"
