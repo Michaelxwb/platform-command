@@ -96,7 +96,7 @@ MSS 命令（`mss.export_weekly`/`export_monthly`/`send_email`/`search_company`/
 6. **定时时间须 `HH:MM` 24h 制**；解析存疑先与用户确认，不擅自填。
 7. 纯业务交流**只用业务语言**，不向用户暴露内部字段名 / task_id / 技术细节。
 
-> 完整 MSS 规范见源码仓库 `AGENTS.md`（本地/开发侧）；以上为容器内必守的精简子集。
+> 完整 MSS 规范见 `docs/mss-report-commands.md`；以上为容器内必守的精简子集。
 
 ## 文件路径约定
 
