@@ -513,6 +513,12 @@ try {
 const initResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 10, method: 'initialize', params: {} });
 assert.deepEqual(initResponse.result.capabilities, { tools: {}, resources: {}, prompts: {} });
 assert.equal(initResponse.result.serverInfo.version, pkg.version);
+// initialize.instructions：引导 agent 优先用 platform-command，并列出覆盖平台 + 执行约定。
+const mcpInstructions = initResponse.result.instructions;
+assert.ok(typeof mcpInstructions === 'string' && mcpInstructions.length > 0, 'initialize 必须返回 instructions');
+assert.match(mcpInstructions, /platform_command_execute/, 'instructions 应指明用 execute 工具');
+assert.match(mcpInstructions, /dryRun:false|confirm:true/, 'instructions 应说明真实执行约定');
+assert.match(mcpInstructions, /demo/, 'instructions 应动态列出已装平台（至少含 demo）');
 const describeResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 15, method: 'tools/call', params: { name: 'platform_command_describe', arguments: { command: 'demo.search_example' } } });
 const describedCommand = JSON.parse(describeResponse.result.content[0].text);
 assert.equal(describedCommand.execution.executable, false);

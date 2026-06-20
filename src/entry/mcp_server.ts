@@ -16,10 +16,28 @@ import { generateCommandDocs } from '../io/docs.js';
 const pkg = readJson(`${ROOT}/package.json`);
 const SERVER_INFO = { name: 'platform-command', version: pkg.version };
 
+// MCP initialize.instructions：客户端会把它喂进模型上下文，引导 agent「何时该优先用本服务」。
+// 动态列出已装命令覆盖的平台，让 agent 明确路由边界（避免自己写 HTTP/git/脚本绕过命令）。
+export function buildServerInstructions() {
+  let platforms = [];
+  try {
+    // listCommands() 返回命令名字符串数组（如 "mss.export_weekly"）；取平台前缀去重。
+    platforms = [...new Set((listCommands() || []).map((c) => String(typeof c === 'string' ? c : c?.name || '').split('.')[0]).filter(Boolean))];
+  } catch { /* 列表失败不致命，照样给通用指引 */ }
+  const list = platforms.length ? platforms.join('、') : '（用 platform_command_list 查看）';
+  return [
+    `platform-command 提供一批可复用、带登录态会话与审计的平台命令，覆盖平台：${list}。`,
+    `凡涉及这些平台的操作（查询 / 导出 / 发帖 / 发邮件 / 同步 / 调度等），必须优先用本服务的 platform_command_* 工具，`,
+    `不要自己写 HTTP / curl / git / 浏览器脚本去做——那会绕过登录态、审计与参数校验。`,
+    `流程：先 platform_command_list 或 platform_command_explain 找命令 → platform_command_describe 看参数 → platform_command_execute 执行（默认 dry-run；真实执行传 dryRun:false 且 confirm:true）。`,
+    `命令报错或不可执行时如实回报，不要绕过去自行实现。`
+  ].join('\n');
+}
+
 export const MCP_TOOLS = [
   {
     name: 'platform_command_list',
-    description: 'List available platform-command command definitions. External commands override builtin commands.',
+    description: 'List available platform commands (by platform.action name). Call this FIRST whenever a task involves a covered platform, before writing any HTTP/git/browser code yourself. External commands override builtin commands.',
     inputSchema: {
       type: 'object',
       properties: { detailed: { type: 'boolean', description: 'Return file/source/package metadata.' } }
@@ -60,7 +78,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'platform_command_execute',
-    description: 'Execute or dry-run a platform command. Defaults to dry-run; real execution requires confirm and may still be blocked by policy.',
+    description: 'Run a platform command (preferred way to act on any covered platform — do NOT hand-write HTTP/curl/git/browser scripts for these). Defaults to dry-run; for real execution pass dryRun:false AND confirm:true. May still be blocked by policy.',
     inputSchema: {
       type: 'object',
       required: ['command'],
@@ -145,7 +163,8 @@ export async function handleMcpRequest(message) {
       result: {
         protocolVersion: params.protocolVersion || '2024-11-05',
         capabilities: { tools: {}, resources: {}, prompts: {} },
-        serverInfo: SERVER_INFO
+        serverInfo: SERVER_INFO,
+        instructions: buildServerInstructions()
       }
     };
   }
