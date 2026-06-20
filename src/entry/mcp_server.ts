@@ -258,10 +258,11 @@ function toolResult(data) {
 
 export async function runMcpServer({ input = process.stdin, output = process.stdout } = {}) {
   const rl = readline.createInterface({ input, crlfDelay: Infinity });
-  // 并发处理：不串行 await，避免一个长命令（如导出，分钟级）阻塞后续所有请求
-  // （否则导出期间 list/describe/status 等都会在管道里排队，被客户端误判超时）。
-  // 每个响应是一行完整 JSON + 换行，单次 write 原子写出；JSON-RPC 按 id 关联，顺序无关。
-  const handleLine = async (line) => {
+  // 串行处理（响应严格按请求顺序返回）。曾尝试并发以避免长命令阻塞后续请求，但部分客户端
+  // （如 OpenCode 1.17.7）处理不了乱序响应、会 desync 整个连接判死——故回退串行。
+  // 长命令（导出）的阻塞问题改由「异步导出」（触发即返回 task_id）从根上解决，不靠并发。
+  for await (const line of rl) {
+    if (!line.trim()) continue;
     let response;
     try {
       response = await handleMcpRequest(JSON.parse(line));
@@ -269,10 +270,6 @@ export async function runMcpServer({ input = process.stdin, output = process.std
       response = { jsonrpc: '2.0', id: null, error: { code: -32000, message: error.message } };
     }
     if (response) output.write(`${JSON.stringify(response)}\n`);
-  };
-  for await (const line of rl) {
-    if (!line.trim()) continue;
-    void handleLine(line);
   }
 }
 
