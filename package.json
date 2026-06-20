@@ -1,6 +1,6 @@
 {
   "name": "@jahanxu/platform-command",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "MCP-first command framework for reusable platform operations with extensible JSON commands.",
   "type": "module",
   "bin": {
@@ -63,6 +63,6 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@jahanxu/platform-command": "^0.4.0"
+    "@jahanxu/platform-command": "file:jahanxu-platform-command-0.4.1.tgz"
   }
 }

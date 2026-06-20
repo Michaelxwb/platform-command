@@ -16,14 +16,30 @@ import { generateCommandDocs } from '../io/docs.js';
 const pkg = readJson(`${ROOT}/package.json`);
 const SERVER_INFO = { name: 'platform-command', version: pkg.version };
 
-// MCP initialize.instructions：客户端会把它喂进模型上下文，引导 agent「何时该优先用本服务」。
-// 动态列出已装命令覆盖的平台，让 agent 明确路由边界（避免自己写 HTTP/git/脚本绕过命令）。
-export function buildServerInstructions() {
-  let platforms = [];
+// 已装命令覆盖的平台前缀（listCommands() 返回命令名字符串数组，如 "mss.export_weekly"）。
+export function coveredPlatforms() {
   try {
-    // listCommands() 返回命令名字符串数组（如 "mss.export_weekly"）；取平台前缀去重。
-    platforms = [...new Set((listCommands() || []).map((c) => String(typeof c === 'string' ? c : c?.name || '').split('.')[0]).filter(Boolean))];
-  } catch { /* 列表失败不致命，照样给通用指引 */ }
+    return [...new Set((listCommands() || []).map((c) => String(typeof c === 'string' ? c : c?.name || '').split('.')[0]).filter(Boolean))];
+  } catch {
+    return []; // 列表失败不致命
+  }
+}
+
+// tools/list 时给关键工具描述动态追加「覆盖平台」——工具描述所有 MCP 客户端都会喂给模型，
+// 比可能被忽略的 initialize.instructions 更可靠地引导 agent 路由到 platform-command。
+export function toolsWithContext() {
+  const platforms = coveredPlatforms();
+  if (!platforms.length) return MCP_TOOLS;
+  const suffix = ` Covered platforms (use this instead of writing HTTP/git/browser code for them): ${platforms.join(', ')}.`;
+  return MCP_TOOLS.map((t) =>
+    (t.name === 'platform_command_execute' || t.name === 'platform_command_list')
+      ? { ...t, description: t.description + suffix }
+      : t);
+}
+
+// MCP initialize.instructions：客户端会把它喂进模型上下文，引导 agent「何时该优先用本服务」。
+export function buildServerInstructions() {
+  const platforms = coveredPlatforms();
   const list = platforms.length ? platforms.join('、') : '（用 platform_command_list 查看）';
   return [
     `platform-command 提供一批可复用、带登录态会话与审计的平台命令，覆盖平台：${list}。`,
@@ -169,7 +185,7 @@ export async function handleMcpRequest(message) {
     };
   }
   if (method === 'notifications/initialized') return null;
-  if (method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } };
+  if (method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: toolsWithContext() } };
   if (method === 'tools/call') return { jsonrpc: '2.0', id, result: await callTool(params.name, params.arguments || {}) };
   if (method === 'resources/list') return { jsonrpc: '2.0', id, result: { resources: MCP_RESOURCES } };
   if (method === 'resources/read') return { jsonrpc: '2.0', id, result: readResource(params.uri) };

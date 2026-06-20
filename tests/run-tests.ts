@@ -519,6 +519,11 @@ assert.ok(typeof mcpInstructions === 'string' && mcpInstructions.length > 0, 'in
 assert.match(mcpInstructions, /platform_command_execute/, 'instructions 应指明用 execute 工具');
 assert.match(mcpInstructions, /dryRun:false|confirm:true/, 'instructions 应说明真实执行约定');
 assert.match(mcpInstructions, /demo/, 'instructions 应动态列出已装平台（至少含 demo）');
+// tools/list：关键工具描述动态带「覆盖平台」清单（所有客户端都会喂给模型）。
+const toolsListResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 14, method: 'tools/list', params: {} });
+const execTool = toolsListResponse.result.tools.find((t) => t.name === 'platform_command_execute');
+assert.match(execTool.description, /Covered platforms/, 'execute 工具描述应带覆盖平台清单');
+assert.match(execTool.description, /demo/, 'execute 工具描述应含已装平台名');
 const describeResponse = await handleMcpRequest({ jsonrpc: '2.0', id: 15, method: 'tools/call', params: { name: 'platform_command_describe', arguments: { command: 'demo.search_example' } } });
 const describedCommand = JSON.parse(describeResponse.result.content[0].text);
 assert.equal(describedCommand.execution.executable, false);
