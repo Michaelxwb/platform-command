@@ -28,17 +28,14 @@ async function render() {
   $('domains').value = domains.join('\n');
   $('filename').value = filename;
   $('minInterval').value = Number.isFinite(min) && min >= 0 ? min : DEFAULTS.minIntervalSec;
-  $('stateText').textContent = `监控中（${domains.length} 个域）`;
+  $('stateText').textContent = `监控中 · ${domains.length} 域`;
   const last = r[KEYS.lastExport];
-  $('lastExport').textContent = last
-    ? `最近导出：${fmtTime(last.at)} · ${last.count} cookies`
-    : '尚未导出（登录目标站点或点「立即导出」）';
-  // 路径提示按系统显示：Windows 用 %USERPROFILE%\Downloads\ 反斜杠，mac/linux 用 ~/Downloads/。
+  $('lastExport').textContent = last ? ` · 最近 ${fmtTime(last.at)}（${last.count}）` : ' · 未导出';
+  // 路径按系统显示：Windows %USERPROFILE%\Downloads\，mac/linux ~/Downloads/。
   const info = await chrome.runtime.getPlatformInfo();
-  const shown = info.os === 'win'
+  $('outPath').textContent = info.os === 'win'
     ? `%USERPROFILE%\\Downloads\\${filename.replace(/\//g, '\\')}`
     : `~/Downloads/${filename}`;
-  $('outPath').innerHTML = `输出：<code>${shown}</code>`;
 }
 
 async function save() {
