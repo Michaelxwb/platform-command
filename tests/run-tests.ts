@@ -304,10 +304,11 @@ const mcpInput = [
 ].join('\n') + '\n';
 const mcpRun = spawnSync('node', [MCP_SERVER_PATH], { input: mcpInput, encoding: 'utf8' });
 assert.equal(mcpRun.status, 0, mcpRun.stderr);
-const mcpLines = mcpRun.stdout.trim().split(/\n+/).map((line) => JSON.parse(line));
-assert.equal(mcpLines[0].result.serverInfo.name, 'platform-command');
-assert.ok(mcpLines[1].result.tools.some((tool) => tool.name === 'platform_command_list'));
-const mcpExecutePayload = JSON.parse(mcpLines[2].result.content[0].text);
+// 并发处理后响应顺序不保证，按 id 关联（JSON-RPC 契约）。
+const mcpById = new Map(mcpRun.stdout.trim().split(/\n+/).map((line) => JSON.parse(line)).map((m) => [m.id, m]));
+assert.equal(mcpById.get(1).result.serverInfo.name, 'platform-command');
+assert.ok(mcpById.get(2).result.tools.some((tool) => tool.name === 'platform_command_list'));
+const mcpExecutePayload = JSON.parse(mcpById.get(3).result.content[0].text);
 assert.equal(mcpExecutePayload.status, 'dry_run');
 assert.equal(mcpExecutePayload.params.keyword, 'abc');
 
