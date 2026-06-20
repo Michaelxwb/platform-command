@@ -12,6 +12,7 @@
   | `PLATFORM_COMMAND_USER_ID` | server-mode 用户标识，真实执行必需（如 `local`） |
   | `PLATFORM_COMMAND_STORAGE_STATE` | 指向登录态 storageState 文件（由[配套浏览器扩展](../browser-extension/README.md)导出） |
   | `PLATFORM_COMMAND_SITE`（可选） | 多实例选站，如 `cn` / `sea`，详见 [mss-report-commands.md](mss-report-commands.md) |
+  | `PLATFORM_COMMAND_EXPORT_ASYNC`（可选，**交互式客户端建议开**） | 设 `1`：导出触发拿到 task_id 即返回（status:`generating`），不在调用里死等报告就绪——避免长调用超时/被重试出重复报告。agent 再用 `mss.report_status` 轮询、就绪后 `mss.download_report`/`send_email`/`sync_portal`。不设则同步阻塞（适合 daemon）。 |
 - **不配 env 也能装**：能列工具、能 dry-run；只有**导出/需登录态的命令真实执行**才依赖 `STORAGE_STATE`。
 - **路径**：macOS/Linux `~/Downloads/platform-command/storage-state.json`；Windows `%USERPROFILE%\Downloads\platform-command\storage-state.json`（配置里用绝对路径）。
 

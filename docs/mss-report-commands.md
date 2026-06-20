@@ -169,6 +169,13 @@ export PLATFORM_COMMAND_STORAGE_STATE=$PWD/.platform-command/storage-state.json
 
 `export_weekly/monthly` 在此之上组合：配置→模板→小语种→导出→（按开关）发邮件/同步；可由调度框架定时触发（容器内走 GA，见「定时导出」）。
 
+### 异步导出（交互式客户端，避免长调用超时）
+
+报告生成要分钟级，同步等就绪会让 MCP 客户端（如 OpenCode）判超时、还可能被重试出重复报告。设环境变量 **`PLATFORM_COMMAND_EXPORT_ASYNC=1`** 即开异步：
+- `export_weekly/monthly`（或 `export_report`）触发拿到 `task_id` 后**立即返回** `status:"generating"` + `meta.taskId`，不等就绪（工作流在 export 步停下，send/sync 不在本次调用里跑）。
+- agent 接着用 `mss.report_status` 轮询至 `task_status==1`，就绪后再 `mss.download_report taskId=`（按需 `mss.send_email` / `mss.sync_portal`）。
+- 不设该变量则同步阻塞到就绪（适合 daemon / 容器无人值守）。
+
 **小语种零降级（前端 i18n）**：翻译/图片是前端静态资源（`/ui-report/static/remote/<code>/`，code=`th/id/de/it`…），SPA 按 `export_locales` 加载渲染。interceptFlow 的 `page.route` 改写 `get_history_pwd` 响应的 `export_locales=[en,<code>]`（`export_locales.js`）即注入小语种——**无后端 API，靠拦截**。`mss.set_locale` 设的是 `local_locale`（客户报告语种配置），与导出语种是两回事。
 
 **抓不到 task_id 的兜底**（修掉旧的"capture 超时即失败"）：response 监听挂在 `goto` 之前；若仍没抓到，用触发前 `report_status` 快照与触发后列表做差集，只认"新增且 `task_status==1`"的行、回填其 task_id 给下游——截没截到都拿得到，不再死等超时。

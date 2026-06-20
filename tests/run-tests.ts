@@ -1571,6 +1571,15 @@ console.log('multi-site host resolution tests passed.');
     assert.equal(res.meta.taskId, 'TASK99');
     assert.deepEqual(JSON.parse(rewritten).data.weekly_export_config.export_locales, ['en', 'id']);
     assert.equal(res.meta.poll.ready, true);
+
+    // 异步导出：EXPORT_ASYNC=1 时触发拿到 task_id 即返回 'generating'，不等就绪、不带 poll。
+    process.env.PLATFORM_COMMAND_EXPORT_ASYNC = '1';
+    const asyncRes = await executeInterceptFlow(cmd, {});
+    delete process.env.PLATFORM_COMMAND_EXPORT_ASYNC;
+    assert.equal(asyncRes.status, 'generating', JSON.stringify(asyncRes));
+    assert.equal(asyncRes.meta.taskId, 'TASK99');
+    assert.equal(asyncRes.meta.async, true);
+    assert.equal(asyncRes.meta.poll, undefined, '异步不应轮询');
   } finally {
     pa.__setPlaywrightLoader(null);
     await pa.closePlaywright();

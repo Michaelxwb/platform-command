@@ -206,6 +206,27 @@ export async function executeInterceptFlow(command, params = {}, options = {}) {
   ctx.capture = captures;
   if (process.env.PLATFORM_COMMAND_DEBUG_HTTP) console.error(`[debug-intercept] 抓到 generate_report task_id=${captures.taskId || '(未抓到→走快照差集)'}`);
 
+  // 异步导出：PLATFORM_COMMAND_EXPORT_ASYNC=1 时，触发拿到 task_id 即返回（status:'generating'），
+  // 不在本次调用里死等就绪——避免长调用超时/占住串行 server/被重试出重复报告。
+  // 下游（轮询就绪、下载、发邮件、同步）由 agent 用 mss.report_status / download_report 等接着编排。
+  if (flow.poll && (process.env.PLATFORM_COMMAND_EXPORT_ASYNC === '1' || process.env.PLATFORM_COMMAND_EXPORT_ASYNC === 'true')) {
+    const hasTask = ctx.capture.taskId !== undefined && ctx.capture.taskId !== null && String(ctx.capture.taskId).length > 0;
+    return {
+      status: hasTask ? 'generating' : 'failed',
+      command: command.name,
+      capability: 'ui_intercept',
+      adapter: 'playwright',
+      rows: [],
+      meta: {
+        ...captures,
+        async: true,
+        note: hasTask
+          ? '报告已触发生成（异步）。用 mss.report_status 轮询 task_status==1 后，再 mss.download_report / send_email / sync_portal。'
+          : 'task_id 未捕获；用 mss.report_status 查最新生成中的报告以取 task_id。'
+      }
+    };
+  }
+
   let poll = null;
   if (flow.poll) {
     const spec = renderValue(flow.poll, ctx); // matchValue 可引用 {{capture.taskId}}

@@ -126,6 +126,22 @@ export async function executeWorkflow(command, params = {}, options = {}) {
       return { status: 'failed', command: command.name, capability: 'workflow_compose', failedStep: id, steps: summaries };
     }
 
+    // 异步导出：子步触发后即返回 'generating'（拿到 task_id 未等就绪）→ 工作流到此成功停下，
+    // 把 task_id 回传给 agent，由它用 report_status 轮询、就绪后再 download/send/sync（不在本次调用里死等）。
+    if (result?.status === 'generating') {
+      summaries.push({ id, command: step.command, status: 'generating' });
+      return {
+        status: 'generating',
+        command: command.name,
+        capability: 'workflow_compose',
+        generatingStep: id,
+        taskId: result?.meta?.taskId,
+        meta: result?.meta || {},
+        steps: summaries,
+        note: '导出已触发（异步）。用 mss.report_status 轮询 task_status==1 后再 mss.download_report / send_email / sync_portal。'
+      };
+    }
+
     // 子步验收失败视为业务失败 → 中止（不静默继续）。
     if (result?.acceptance?.status === 'failed') {
       summaries.push({ id, command: step.command, status: 'failed', reason: 'acceptance failed', acceptance: result.acceptance });
