@@ -21,3 +21,5 @@ test_soar.js
 test_soar.py
 # 平台 store 是运行时业务状态（每客户配置），不纳入版本库
 commands/*/store/
+# 根目录 npm pack 产物（临时离线包），禁止入库（deploy/pc-local/*.tgz 另行追踪）
+/*.tgz
