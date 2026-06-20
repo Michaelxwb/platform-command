@@ -42,6 +42,10 @@
     <label for="filename" style="margin-top:12px;">输出文件名（相对 Downloads）</label>
     <input id="filename" type="text" placeholder="platform-command/storage-state.json" />
 
+    <label for="minInterval" style="margin-top:12px;">最小导出间隔（秒）</label>
+    <input id="minInterval" type="number" min="0" step="5" placeholder="60" />
+    <p class="hint">挡住轮换 cookie 造成的频繁下载；来回横跳的状态也会自动去重。「立即导出」不受限。</p>
+
     <div class="row">
       <button id="save">保存</button>
       <button id="exportNow">立即导出</button>

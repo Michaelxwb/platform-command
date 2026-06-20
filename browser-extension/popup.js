@@ -1,5 +1,5 @@
-const KEYS = { domains: 'monitoredDomains', filename: 'outputFilename', lastExport: 'lastExport' };
-const DEFAULTS = { domains: ['soar.sea.sangfor.com', 'soar.sangfor.com.cn'], filename: 'platform-command/storage-state.json' };
+const KEYS = { domains: 'monitoredDomains', filename: 'outputFilename', minInterval: 'minIntervalSec', lastExport: 'lastExport' };
+const DEFAULTS = { domains: ['soar.sea.sangfor.com', 'soar.sangfor.com.cn'], filename: 'platform-command/storage-state.json', minIntervalSec: 60 };
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,11 +21,13 @@ function fmtTime(ts) {
 }
 
 async function render() {
-  const r = await chrome.storage.local.get([KEYS.domains, KEYS.filename, KEYS.lastExport]);
+  const r = await chrome.storage.local.get([KEYS.domains, KEYS.filename, KEYS.minInterval, KEYS.lastExport]);
   const domains = Array.isArray(r[KEYS.domains]) && r[KEYS.domains].length ? r[KEYS.domains] : DEFAULTS.domains;
   const filename = r[KEYS.filename] || DEFAULTS.filename;
+  const min = Number(r[KEYS.minInterval]);
   $('domains').value = domains.join('\n');
   $('filename').value = filename;
+  $('minInterval').value = Number.isFinite(min) && min >= 0 ? min : DEFAULTS.minIntervalSec;
   $('stateText').textContent = `监控中（${domains.length} 个域）`;
   const last = r[KEYS.lastExport];
   $('lastExport').textContent = last
@@ -43,7 +45,9 @@ async function save() {
   const domains = parseDomains($('domains').value);
   const filename = $('filename').value.trim() || DEFAULTS.filename;
   if (!domains.length) { toast('至少配置一个域名', false); return false; }
-  await chrome.storage.local.set({ [KEYS.domains]: domains, [KEYS.filename]: filename });
+  const minRaw = Number($('minInterval').value);
+  const minIntervalSec = Number.isFinite(minRaw) && minRaw >= 0 ? minRaw : DEFAULTS.minIntervalSec;
+  await chrome.storage.local.set({ [KEYS.domains]: domains, [KEYS.filename]: filename, [KEYS.minInterval]: minIntervalSec });
   toast(`已保存：${domains.length} 个域名`);
   return true;
 }

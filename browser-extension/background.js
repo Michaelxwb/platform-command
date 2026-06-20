@@ -5,7 +5,8 @@
 const KEYS = {
   domains: 'monitoredDomains',
   filename: 'outputFilename',
-  fingerprint: 'stateFingerprint',
+  minInterval: 'minIntervalSec',
+  recent: 'recentFingerprints',
   lastExport: 'lastExport'
 };
 
@@ -13,10 +14,12 @@ const DEFAULTS = {
   // 默认白名单；options 页可改。注意：这里的域名必须与命令实际请求的 host 一致，
   // 否则框架按 host 取 cookie 时匹配不上（见 README）。
   domains: ['soar.sea.sangfor.com', 'soar.sangfor.com.cn'],
-  filename: 'platform-command/storage-state.json'
+  filename: 'platform-command/storage-state.json',
+  minIntervalSec: 60 // 两次下载最小间隔，挡住轮换 cookie 造成的频繁下载
 };
 
-const DEBOUNCE_DELAY = 500;
+const DEBOUNCE_DELAY = 1500; // 合并突发的 cookie 变化
+const RECENT_MAX = 8;        // 记住最近 N 个状态指纹，抑制来回横跳的重复下载
 let debounceTimer = null;
 
 // chrome.cookies.sameSite → Playwright storageState sameSite
@@ -27,11 +30,13 @@ function normalizeDomain(d) {
 }
 
 async function getConfig() {
-  const r = await chrome.storage.local.get([KEYS.domains, KEYS.filename]);
+  const r = await chrome.storage.local.get([KEYS.domains, KEYS.filename, KEYS.minInterval]);
   const raw = Array.isArray(r[KEYS.domains]) && r[KEYS.domains].length ? r[KEYS.domains] : DEFAULTS.domains;
+  const min = Number(r[KEYS.minInterval]);
   return {
     domains: [...new Set(raw.map(normalizeDomain).filter(Boolean))],
-    filename: r[KEYS.filename] || DEFAULTS.filename
+    filename: r[KEYS.filename] || DEFAULTS.filename,
+    minIntervalSec: Number.isFinite(min) && min >= 0 ? min : DEFAULTS.minIntervalSec
   };
 }
 
@@ -79,20 +84,30 @@ async function writeState(state, filename) {
   await chrome.downloads.download({ url, filename, saveAs: false, conflictAction: 'overwrite' });
 }
 
-// 导出主流程：仅白名单域名、内容变化才覆盖写（指纹去重，避免无谓下载）。
-async function exportSession() {
-  const { domains, filename } = await getConfig();
-  if (!domains.length) return;
+// 导出主流程：仅白名单域名、内容变化才覆盖写。两层防抖：
+//   1) 最近状态记忆：指纹在最近 N 个里见过（含来回横跳的两态）→ 跳过，不重复下载。
+//   2) 节流：距上次下载不足 minIntervalSec → 跳过（高基数轮换 cookie 兜底；alarm 会补写最新）。
+// force=true（手动「立即导出」）绕过两层，强制写一次。
+async function exportSession(force = false) {
+  const { domains, filename, minIntervalSec } = await getConfig();
+  if (!domains.length) return null;
   const state = await collectStorageState(domains);
-  if (!state.cookies.length) return;
+  if (!state.cookies.length) return null;
 
   const fingerprint = JSON.stringify(state.cookies.map((c) => [c.name, c.domain, c.path, c.value]));
-  const cached = (await chrome.storage.local.get(KEYS.fingerprint))[KEYS.fingerprint] || '';
-  if (fingerprint === cached) return;
+  const store = await chrome.storage.local.get([KEYS.recent, KEYS.lastExport]);
+  const recent = Array.isArray(store[KEYS.recent]) ? store[KEYS.recent] : [];
+
+  if (!force) {
+    if (recent.includes(fingerprint)) return null; // 最近见过的状态（含横跳两态）
+    const lastAt = store[KEYS.lastExport]?.at || 0;
+    if (Date.now() - lastAt < minIntervalSec * 1000) return null; // 节流
+  }
 
   await writeState(state, filename);
+  const nextRecent = [fingerprint, ...recent.filter((f) => f !== fingerprint)].slice(0, RECENT_MAX);
   const lastExport = { at: Date.now(), count: state.cookies.length, domains: domains.length, filename };
-  await chrome.storage.local.set({ [KEYS.fingerprint]: fingerprint, [KEYS.lastExport]: lastExport });
+  await chrome.storage.local.set({ [KEYS.recent]: nextRecent, [KEYS.lastExport]: lastExport });
   console.log(`[platform-command] 导出 storageState：${state.cookies.length} cookies（${domains.length} 域）→ ${filename}`);
   return lastExport;
 }
@@ -100,7 +115,7 @@ async function exportSession() {
 function scheduleExport() {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    exportSession().catch((e) => console.error('[platform-command] 导出失败:', e));
+    exportSession(false).catch((e) => console.error('[platform-command] 导出失败:', e));
   }, DEBOUNCE_DELAY);
 }
 
@@ -128,7 +143,7 @@ chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'pc-session-export') s
 // options 页「立即导出」按钮。
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.action === 'exportNow') {
-    exportSession()
+    exportSession(true) // 手动强制导出，绕过去抖/节流
       .then((info) => sendResponse({ ok: true, info: info || null }))
       .catch((e) => sendResponse({ ok: false, error: e.message }));
     return true; // 异步响应

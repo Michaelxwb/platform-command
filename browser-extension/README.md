@@ -49,5 +49,8 @@ $env:PLATFORM_COMMAND_STORAGE_STATE = "$env:USERPROFILE\Downloads\platform-comma
 
 - **多平台共存**：配多个域名时合并成一份 storageState，框架按 host 自动分流，互不串味。
 - **httpOnly**：用 `chrome.cookies.getAll` 读取，能拿到 `soc-token`/`csrf_token` 等 httpOnly cookie（`document.cookie` 拿不到）。
-- **去重**：内容指纹未变不重复下载；变了才覆盖。
-- **触发**：白名单域名 cookie 变化即导（防抖 500ms）+ 每分钟兜底重扫 + 弹窗「立即导出」。
+- **防重复下载**（针对轮换 cookie 导致的频繁下载）：
+  - **状态记忆**：记住最近 N 个 cookie 快照指纹，来回横跳的两态只各下一次、之后自动去重；
+  - **节流**：两次下载最小间隔默认 60s（弹窗可调），高基数轮换 cookie 也不刷屏；
+  - 「立即导出」按钮强制写一次，不受上述限制。
+- **触发**：白名单域名 cookie 变化即导（防抖 1.5s）+ 每分钟兜底重扫 + 弹窗「立即导出」。
