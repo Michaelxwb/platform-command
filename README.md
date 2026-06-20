@@ -40,6 +40,9 @@ platform-command mcp
 npm run mcp
 ```
 
+> 在 OpenCode / OpenClaw / Hermes / Claude / Codex 等 MCP agent 里安装的现成配置，见
+> **[docs/mcp-agents-setup.md](docs/mcp-agents-setup.md)**（GenericAgent 走 CLI，无需 MCP）。
+
 MCP server 当前提供 10 个 tools：
 
 | Tool | 作用 |
