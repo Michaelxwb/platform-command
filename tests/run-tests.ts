@@ -1689,11 +1689,52 @@ console.log('daemon stop-signal platform selection tests passed.');
     assert.equal(data.meta.weeklyId, 'W1');
     assert.equal(data.meta.monthlyId, 'M1');
     assert.equal(data.meta.missing, undefined);
+
+    // single:true —— 唯一匹配才放行（按名解析 companyId 的安全语义）。
+    const okOne = await readDataSource({
+      type: 'http_json',
+      steps: [{ id: 't', request: { method: 'POST', url: `http://127.0.0.1:${port}/t`, body: {}, expect: { bodyCode: 0 } },
+        extract: { id: { fromList: 'data.template_list', where: { template_name: 'Weekly Security Report' }, single: true, pick: 'template_id' } } }]
+    }, {});
+    assert.equal(okOne.meta.id, 'W1', 'single 唯一匹配返回该项');
+
+    // 0 个匹配 → 抛错
+    await assert.rejects(readDataSource({
+      type: 'http_json',
+      steps: [{ id: 't', request: { method: 'POST', url: `http://127.0.0.1:${port}/t`, body: {}, expect: { bodyCode: 0 } },
+        extract: { id: { fromList: 'data.template_list', where: { template_name: 'Nope' }, single: true, pick: 'template_id' } } }]
+    }, {}), /期望唯一匹配，实际 0 个/);
+
+    // 多个匹配（无 where，整表 2 条）→ 抛错
+    await assert.rejects(readDataSource({
+      type: 'http_json',
+      steps: [{ id: 't', request: { method: 'POST', url: `http://127.0.0.1:${port}/t`, body: {}, expect: { bodyCode: 0 } },
+        extract: { id: { fromList: 'data.template_list', single: true, pick: 'template_id' } } }]
+    }, {}), /期望唯一匹配，实际 2 个/);
   } finally {
     await new Promise((resolve) => lpServer.close(resolve));
   }
 }
 console.log('list-pick extract tests passed.');
+
+// --- export_weekly/monthly 支持 companyName（内部按名解析）---
+{
+  for (const name of ['mss.export_weekly', 'mss.export_monthly']) {
+    const { command } = loadCommand(name);
+    assert.equal(command.parameters.companyId.required, false, `${name} companyId 改为可选`);
+    assert.ok(command.parameters.companyName, `${name} 新增 companyName 参数`);
+    const resolve = command.steps.find((s) => s.id === 'resolve');
+    assert.equal(resolve.command, 'mss.resolve_company', `${name} resolve 步调 resolve_company`);
+    assert.equal(resolve.when, '{{params.companyName}}', `${name} resolve 仅在给了 companyName 时跑`);
+    // 下游 companyId 取「params 或 resolve」其一（两者恰好一个非空）。
+    const cfg = command.steps.find((s) => s.id === 'cfg');
+    assert.match(cfg.params.companyId, /\{\{params\.companyId\}\}\{\{steps\.resolve\.companyId\}\}/, `${name} 下游 companyId 双源`);
+  }
+  // resolve_company 用 single 抽取保证唯一
+  const { command: rc } = loadCommand('mss.resolve_company');
+  assert.equal(rc.dataSource.steps[0].extract.companyId.single, true, 'resolve_company 用 single 唯一断言');
+}
+console.log('export companyName resolution tests passed.');
 
 // --- TASK-015：workflow forEach 循环 + 末端输出汇总 ---
 {
@@ -1946,7 +1987,7 @@ console.log('download_report tests passed.');
   assert.equal(er.interceptFlow.poll.matchField, 'task_id');
   // export_weekly 仍是完整组合（含 send/sync 全自动）
   const { command: ew } = loadCommand('mss.export_weekly');
-  assert.deepEqual(ew.steps.map((s) => s.id), ['cfg', 'tpl', 'loc', 'export', 'send', 'sync']);
+  assert.deepEqual(ew.steps.map((s) => s.id), ['resolve', 'cfg', 'tpl', 'loc', 'export', 'send', 'sync']);
 
   const { pollUntilReady } = await import('../src/engine/intercept_executor.js');
   const list = (rows) => async () => ({ data: { list: rows } });

@@ -4,14 +4,23 @@
   "description": "MSS 月报业务命令（workflow 组合）：读配置 → 取模板 → 取小语种 → 导出 → 按配置开关同步 portal。report_check=true 时停在人工检查。供 daemon 定时调用或 agent 手动触发。参数仅 companyId。自动发邮件同 export_weekly 说明，由 agent 用 send_email 完成。",
   "riskLevel": "high",
   "parameters": {
-    "companyId": { "type": "string", "required": true, "description": "客户 ID（store key）。" }
+    "companyId": { "type": "string", "required": false, "description": "客户 ID（store key）。与 companyName 二选一；请勿同时填。" },
+    "companyName": { "type": "string", "required": false, "description": "客户名称（与 companyId 二选一）。内部按名解析为唯一 companyId；0 或多个匹配会报错，需改用 companyId。" }
   },
   "strategy": "sequential",
   "steps": [
     {
+      "id": "resolve",
+      "command": "mss.resolve_company",
+      "when": "{{params.companyName}}",
+      "params": { "companyName": "{{params.companyName}}" },
+      "extract": { "companyId": "meta.companyId" }
+    },
+    {
       "id": "cfg",
       "command": "mss.display_config",
-      "params": { "companyId": "{{params.companyId}}" },
+      "dependsOn": ["resolve"],
+      "params": { "companyId": "{{params.companyId}}{{steps.resolve.companyId}}" },
       "extract": { "rangeType": "meta.monthly_range_type", "autoSend": "meta.autoSend", "autoSync": "meta.autoSync", "added": "meta.monthly_emails_added", "removed": "meta.monthly_emails_removed" }
     },
     {
@@ -22,7 +31,7 @@
     {
       "id": "loc",
       "command": "mss.get_locale",
-      "params": { "companyId": "{{params.companyId}}" },
+      "params": { "companyId": "{{params.companyId}}{{steps.resolve.companyId}}" },
       "extract": { "locale": "meta.localLocale" }
     },
     {
@@ -30,7 +39,7 @@
       "command": "mss.export_report",
       "dependsOn": ["cfg", "tpl", "loc"],
       "params": {
-        "companyId": "{{params.companyId}}",
+        "companyId": "{{params.companyId}}{{steps.resolve.companyId}}",
         "reportType": "monthly",
         "templateId": "{{steps.tpl.tid}}",
         "templateName": "{{steps.tpl.tname}}",
@@ -47,7 +56,7 @@
       "when": "{{steps.cfg.autoSend}}",
       "params": {
         "taskId": "{{steps.export.taskId}}",
-        "companyId": "{{params.companyId}}",
+        "companyId": "{{params.companyId}}{{steps.resolve.companyId}}",
         "reportType": "monthly",
         "emailsAdded": "{{steps.cfg.added}}",
         "emailsRemoved": "{{steps.cfg.removed}}"

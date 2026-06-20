@@ -218,13 +218,21 @@ function shouldKeepItem(item, collect) {
 function extractObject(body, extract) {
   const out = {};
   for (const [key, spec] of Object.entries(extract)) {
-    // 列表取单项：从 fromList 数组中找首个满足 where 全等的项，再 pick 字段（或整项）。
+    // 列表取单项：从 fromList 数组中找满足 where 全等的项，再 pick 字段（或整项）。
+    // single:true → 必须恰好 1 个匹配，0 或多个抛错（用于「按名解析唯一 id，不替选」）。
     if (spec && typeof spec === 'object' && spec.fromList) {
       const list = getPath(body, spec.fromList);
-      const item = Array.isArray(list)
-        ? list.find((it) => Object.entries(spec.where || {}).every(([k, v]) => getPath(it, k) === v))
-        : undefined;
-      out[key] = item === undefined ? undefined : (spec.pick ? getPath(item, spec.pick) : item);
+      const matches = (Array.isArray(list) ? list : [])
+        .filter((it) => Object.entries(spec.where || {}).every(([k, v]) => getPath(it, k) === v));
+      if (spec.single) {
+        if (matches.length !== 1) {
+          throw new Error(`extract '${key}': 期望唯一匹配，实际 ${matches.length} 个（fromList=${spec.fromList}${Object.keys(spec.where || {}).length ? `, where=${JSON.stringify(spec.where)}` : ''}）`);
+        }
+        out[key] = spec.pick ? getPath(matches[0], spec.pick) : matches[0];
+      } else {
+        const item = matches[0];
+        out[key] = item === undefined ? undefined : (spec.pick ? getPath(item, spec.pick) : item);
+      }
     } else {
       out[key] = getPath(body, spec.path || spec);
     }

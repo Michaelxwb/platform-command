@@ -1,0 +1,56 @@
+{
+  "name": "mss.resolve_company",
+  "platform": "mss",
+  "description": "按客户名解析唯一 companyId：模糊搜 report_customer，恰好 1 个匹配才返回 companyId；0 个或多个则报错并要求改用 companyId（绝不自动替选，RULE-02）。供 export_weekly/monthly 内部按名解析。",
+  "riskLevel": "low",
+  "sessionRef": "prelogged-mss-soar-session",
+  "runtime": {
+    "requiresAuth": true,
+    "auth": {
+      "type": "browser_session_cookie",
+      "sessionRef": "prelogged-mss-soar-session",
+      "csrfToken": "csrf_token cookie -> X-Csrftoken header"
+    },
+    "unauthorizedHint": "需要已登录的 MSS soar 平台会话；401/403 或返回非 0 code 时刷新登录态，不要自动重试。"
+  },
+  "learnedFrom": {
+    "url": "https://soar.sea.sangfor.com/index.html",
+    "provider": "复用 search_company 的 report_customer 接口，加唯一性断言",
+    "notes": ["POST /order/v1/report/report_customer，body={keyword, offset, limit}，data.list:[{company_id, company_name}]。"]
+  },
+  "parameters": {
+    "companyName": { "type": "string", "required": true, "description": "客户名称（模糊搜索；须唯一匹配，否则报错）。" }
+  },
+  "dataSource": {
+    "type": "http_json",
+    "title": "解析客户 companyId：{{params.companyName}}",
+    "steps": [
+      {
+        "id": "resolve",
+        "request": {
+          "method": "POST",
+          "url": "https://soar.sea.sangfor.com/order/v1/report/report_customer",
+          "headers": {
+            "content-type": "application/json",
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "x-requested-with": "XMLHttpRequest",
+            "x-csrftoken": "{{session.csrfToken}}"
+          },
+          "body": { "keyword": "{{params.companyName}}", "offset": 0, "limit": 100 },
+          "expect": { "bodyCode": 0 }
+        },
+        "extract": {
+          "companyId": { "fromList": "data.list", "single": true, "pick": "company_id" },
+          "companyName": { "fromList": "data.list", "single": true, "pick": "company_name" }
+        }
+      }
+    ]
+  },
+  "output": { "capability": "return_json", "title": "解析客户：{{params.companyName}}" },
+  "successCriteria": [
+    "模糊搜索恰好 1 个匹配时返回其 companyId / companyName。",
+    "0 个或多个匹配时报错（要求改用 companyId 指定），不自动替选。"
+  ],
+  "checks": ["dry-run 展示 POST report_customer 计划，keyword 已替换。"],
+  "failureCases": ["未登录/会话过期 401/403。", "客户名 0 或多个匹配时 extract single 抛错。"]
+}
