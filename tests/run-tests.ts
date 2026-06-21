@@ -1073,7 +1073,7 @@ try {
     const httpB = await import('node:http');
     let capturedB = null;
     const srvB = httpB.createServer((req, res) => {
-      capturedB = { cookie: req.headers.cookie, csrf: req.headers['x-csrftoken'], origin: req.headers.origin, referer: req.headers.referer };
+      capturedB = { cookie: req.headers.cookie, csrf: req.headers['x-csrftoken'], origin: req.headers.origin, referer: req.headers.referer, ua: req.headers['user-agent'] };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: { items: [{ name: 'x' }], cursor: { is_end: true } } }));
     });
@@ -1103,6 +1103,7 @@ try {
     assert.equal(capturedB.csrf, 'tok-1', 'X-Csrftoken 取自 storageState 的 csrf_token');
     assert.equal(capturedB.origin, `http://127.0.0.1:${portB}`, 'Origin 按目标 origin 注入（CSRF 校验需要）');
     assert.ok(capturedB.referer && capturedB.referer.startsWith(`http://127.0.0.1:${portB}/`), 'Referer 按目标 origin 注入');
+    assert.ok(capturedB.ua && /Mozilla.*Chrome/.test(capturedB.ua), 'User-Agent 补成浏览器 UA（绕过反爬 WAF 的 9000）');
     const pwRunRecord = JSON.parse(fs.readFileSync(pwExec.runFile, 'utf8'));
     assert.equal(pwRunRecord.userId, 'alice');
     assert.equal(pwRunRecord.adapter, 'node_http');

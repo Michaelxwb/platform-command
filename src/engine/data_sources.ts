@@ -85,6 +85,11 @@ async function collectRows(step, context) {
 }
 
 const DEFAULT_FETCH_TIMEOUT_MS = Number(process.env.PLATFORM_COMMAND_FETCH_TIMEOUT_MS || 15000);
+// 浏览器会话请求的默认 User-Agent：soar 等平台的反爬/WAF 会拒绝非浏览器 UA 的请求
+// （返回业务码 9000 "Server is busy"）。node fetch 默认不带浏览器 UA，按真实 Chrome 补齐；
+// 可用 PLATFORM_COMMAND_USER_AGENT 覆盖。
+const DEFAULT_BROWSER_UA = process.env.PLATFORM_COMMAND_USER_AGENT
+  || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 
 async function fetchStepJson(step, context) {
   const request = renderValue(step.request || {}, context);
@@ -135,6 +140,8 @@ async function fetchStepJson(step, context) {
     const origin = new URL(target).origin;
     if (!hasHeader('origin')) headers.Origin = origin;
     if (!hasHeader('referer')) headers.Referer = `${origin}/index.html`;
+    // 反爬 WAF：非浏览器 UA 会被拒（9000 "Server is busy"），按真实浏览器补 User-Agent。
+    if (!hasHeader('user-agent')) headers['User-Agent'] = DEFAULT_BROWSER_UA;
   }
   const init = { method, headers, signal: AbortSignal.timeout(Number(request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS)) };
   if (body !== undefined) init.body = body;
