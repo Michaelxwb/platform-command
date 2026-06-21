@@ -57,7 +57,7 @@ export async function executeWorkflow(command, params = {}, options = {}) {
   const recipe = normalizeRecipe(command);
   if (!recipe || !Array.isArray(recipe.steps)) throw new Error('executeWorkflow: command has no steps');
 
-  const context = { params, steps: {} };
+  const context = { params, steps: {}, declaredParams: new Set(Object.keys(command.parameters || {})) };
   const summaries = [];
   const ordered = orderSteps(recipe.steps, recipe.strategy);
 

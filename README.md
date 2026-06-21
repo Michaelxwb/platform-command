@@ -43,7 +43,7 @@ npm run mcp
 > 在 OpenCode / OpenClaw / Hermes / Claude / Codex 等 MCP agent 里安装的现成配置，见
 > **[docs/mcp-agents-setup.md](docs/mcp-agents-setup.md)**（GenericAgent 走 CLI，无需 MCP）。
 
-MCP server 当前提供 10 个 tools：
+MCP server 当前提供 11 个 tools：
 
 | Tool | 作用 |
 | --- | --- |
@@ -54,6 +54,7 @@ MCP server 当前提供 10 个 tools：
 | `platform_command_doctor` | 对 command 做健康检查 |
 | `platform_command_verify` | 校验 command / workflow 结构 |
 | `platform_command_execute` | 执行 command；默认 dry-run |
+| `platform_command_session_status` | 自动识别本地是否已保存登录态会话（执行需登录命令前先调，不必反问用户） |
 | `platform_command_schedule` | 生成宿主调度器规格（不自动安装） |
 | `platform_command_docs` | 生成 command 目录 Markdown 文档 |
 | `platform_command_learn` | 从 URL 学习平台动作，生成 command 草案 |

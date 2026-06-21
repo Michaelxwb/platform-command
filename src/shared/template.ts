@@ -36,6 +36,12 @@ export function renderString(value, context) {
 export function resolvePath(path, context, fallback) {
   if (path.startsWith('params.') && Object.prototype.hasOwnProperty.call(context.params || {}, path.slice(7))) return context.params[path.slice(7)];
   if (context.params && Object.prototype.hasOwnProperty.call(context.params, path)) return context.params[path];
+  // 已声明但未传值的可选参数：属于"预期缺省"，渲染为 undefined（拼接得空串、when 判假），
+  // 不报 UNRESOLVED——命令常用 {{params.a}}{{params.b}} 拼接或 when:{{params.x}} 开关表达可选。
+  if (context.declaredParams) {
+    const name = path.startsWith('params.') ? path.slice(7) : path;
+    if (!name.includes('.') && context.declaredParams.has(name)) return undefined;
+  }
   // `runtime.*` is a deferred namespace: its values are produced during real
   // execution (see workflow auxiliary context). At plan/render time it is
   // expected-absent, so keep the placeholder and do NOT flag it as unresolved

@@ -10,7 +10,7 @@ export function buildWorkflowPlan(command, params, options = {}) {
   const recipe = normalizeRecipe(command);
   if (!recipe || !Array.isArray(recipe.steps)) return null;
   const warnings = [];
-  const context = { params, steps: {}, warnings };
+  const context = { params, steps: {}, warnings, declaredParams: new Set(Object.keys(command.parameters || {})) };
   const sourceSteps = recipe.strategy === 'sequential' ? recipe.steps : sortStepsByDependency(recipe.steps, warnings);
   const steps = sourceSteps.map((step, index) => {
     const normalized = normalizeStep(step, index, context);

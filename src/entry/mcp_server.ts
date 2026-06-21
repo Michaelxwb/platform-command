@@ -10,6 +10,7 @@ import { buildAgentManifest, describeCommand, explainNaturalLanguage } from '../
 import { doctorCommand } from '../model/doctor.js';
 import { buildScheduleSpec } from '../schedule/schedule.js';
 import { generateCommandDocs } from '../io/docs.js';
+import { sessionStatus } from '../adapter/session_import.js';
 
 // 用 utils.ROOT（按 package.json+commands 向上探测，与文件层级无关）读版本，
 // 避免硬编码相对深度——src 分层后这种 `../../package.json` 会失效。
@@ -46,6 +47,7 @@ export function buildServerInstructions() {
     `凡涉及这些平台的操作（查询 / 导出 / 发帖 / 发邮件 / 同步 / 调度等），必须优先用本服务的 platform_command_* 工具，`,
     `不要自己写 HTTP / curl / git / 浏览器脚本去做——那会绕过登录态、审计与参数校验。`,
     `流程：先 platform_command_list 或 platform_command_explain 找命令 → platform_command_describe 看参数 → platform_command_execute 执行（默认 dry-run；真实执行传 dryRun:false 且 confirm:true）。`,
+    `登录态：执行需登录的命令（登录态接口 / UI 写操作，如 mss.export_*）前，必须先用 platform_command_session_status 自动识别是否已保存会话——不要反问用户「是否已配置会话」。ready:true 直接执行；ready:false 时才请用户登录（导入 Cookie / 登录浏览器）。`,
     `命令报错或不可执行时如实回报，不要绕过去自行实现。`
   ].join('\n');
 }
@@ -114,6 +116,11 @@ export const MCP_TOOLS = [
       required: ['command', 'cron'],
       properties: { command: { type: 'string' }, cron: { type: 'string' }, timezone: { type: 'string' }, params: { type: 'object' }, dryRun: { type: 'boolean' }, confirm: { type: 'boolean' } }
     }
+  },
+  {
+    name: 'platform_command_session_status',
+    description: 'Auto-detect whether a logged-in browser session (storageState) is already saved, WITHOUT asking the user. Call this FIRST before executing any command that requires auth (login-gated APIs / UI writes such as mss.export_*). Returns { ready, path, hosts, hasCsrf, cookieCount, envSet }. Only prompt the user to log in when ready:false — never ask the user whether a session is configured.',
+    inputSchema: { type: 'object', properties: { state: { type: 'string', description: 'Optional storageState path; defaults to PLATFORM_COMMAND_STORAGE_STATE or the standard location.' } } }
   },
   {
     name: 'platform_command_docs',
@@ -210,6 +217,7 @@ async function callTool(name, args) {
   if (name === 'platform_command_agent_manifest') return toolResult(buildAgentManifest());
   if (name === 'platform_command_doctor') return toolResult(doctorCommand(args.command));
   if (name === 'platform_command_schedule') return toolResult(buildScheduleSpec({ command: args.command, cron: args.cron, timezone: args.timezone, params: args.params || {}, dryRun: args.dryRun !== false, confirm: !!args.confirm }));
+  if (name === 'platform_command_session_status') return toolResult(sessionStatus({ state: args.state }));
   if (name === 'platform_command_docs') return toolResult(generateCommandDocs({ outputPath: args.outputPath }));
   if (name === 'platform_command_learn') {
     const result = await learnAction({

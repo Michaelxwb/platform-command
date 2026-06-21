@@ -442,6 +442,41 @@ assert.doesNotMatch(serialized, /secret\"\s*:\s*\"[^\[]+/i);
   assert.equal(renderValue('{{runtime.open_video.aid}}', { params: {}, steps: {}, runtime: { open_video: { aid: 123 } } }), 123);
 }
 
+// 已声明但未传值的可选参数：渲染为空、不报 UNRESOLVED（命令用 when:{{params.x}} / 拼接表达可选）。
+{
+  const declared = new Set(['companyId', 'companyName']);
+  const optWarnings = [];
+  // when 开关：companyName 缺省 → 渲染为 undefined（判假跳过），不污染 warnings
+  assert.equal(renderValue('{{params.companyName}}', { params: { companyId: '939' }, declaredParams: declared, warnings: optWarnings }), undefined);
+  // 拼接：缺省可选项贡献空串，已传项原样保留
+  assert.equal(renderValue('{{params.companyId}}{{params.companyName}}', { params: { companyId: '939' }, declaredParams: declared, warnings: optWarnings }), '939');
+  assert.equal(optWarnings.length, 0, '已声明的可选参数缺省不应产生 UNRESOLVED_TEMPLATE');
+  // 未声明的拼写错误仍要报 UNRESOLVED（不被误吞）
+  const typoWarnings = [];
+  renderValue('{{params.compayName}}', { params: { companyId: '939' }, declaredParams: declared, warnings: typoWarnings });
+  assert.ok(typoWarnings.some((w) => w.code === 'UNRESOLVED_TEMPLATE'), '未声明参数仍应报 UNRESOLVED');
+}
+
+// workflow：可选参数二选一（companyId OR companyName）——只给 companyId 时，
+// 引用缺省 companyName 的 when/params 步不应让 failOnUnresolvedTemplates 误杀（复刻 export_weekly bug）。
+{
+  const eitherOr = {
+    name: 'demo.either_or',
+    platform: 'demo',
+    parameters: { companyId: { type: 'string', required: false }, companyName: { type: 'string', required: false } },
+    strategy: 'sequential',
+    steps: [
+      { id: 'resolve', command: 'demo.noop', when: '{{params.companyName}}', params: { companyName: '{{params.companyName}}' }, extract: { cid: 'meta.cid' } },
+      { id: 'use', command: 'demo.noop', dependsOn: ['resolve'], params: { id: '{{params.companyId}}{{steps.resolve.cid}}' } }
+    ],
+    checks: ['plan ok']
+  };
+  // 只给 companyId：不应抛 Unresolved（companyName 是已声明可选项）
+  const plan = buildWorkflowPlan(eitherOr, { companyId: '939' }, { failOnUnresolvedTemplates: true });
+  assert.ok(plan, 'companyId-only 应能构建计划');
+  assert.ok(!plan.warnings.some((w) => w.code === 'UNRESOLVED_TEMPLATE' && w.expression === 'params.companyName'), 'companyName 缺省不应报 UNRESOLVED');
+}
+
 const unresolvedCommand = structuredClone(workflowVerify.command);
 unresolvedCommand.execution.workflow.steps[0].request.query.missing = '{{notDeclared}}';
 const unresolvedPlan = buildWorkflowPlan(unresolvedCommand, { keyword: 'abc', page: 1, limit: 5 });
@@ -1214,6 +1249,7 @@ try {
     'platform_command_learn',
     'platform_command_list',
     'platform_command_schedule',
+    'platform_command_session_status',
     'platform_command_verify'
   ]);
   assert.ok(mcpToolsSnapshot.result.tools.every((tool) => tool.inputSchema && tool.inputSchema.type === 'object'));
@@ -1912,11 +1948,28 @@ console.log('sync_portal report_version tests passed.');
     assert.throws(() => importCookieState({ cookie: 'a=1' }), /需要 --host/);
     assert.throws(() => importCookieState({ host: 'x' }), /需要 --cookie/);
     assert.throws(() => importCookieState({ host: 'x', cookie: 'no-equals' }), /未解析到任何 cookie/);
+    // MCP 工具：agent 可经 platform_command_session_status 自动识别已保存会话（无需反问用户）
+    const sessTool = await handleMcpRequest({ jsonrpc: '2.0', id: 18, method: 'tools/call', params: { name: 'platform_command_session_status', arguments: { state: stateFile } } });
+    const sessPayload = JSON.parse(sessTool.result.content[0].text);
+    assert.equal(sessPayload.ready, true, 'session_status 工具应识别出已保存会话');
+    assert.deepEqual(sessPayload.hosts, ['soar.sea.sangfor.com']);
   } finally {
     fs.rmSync(stateFile, { force: true });
   }
 }
 console.log('session import tests passed.');
+
+// --- MCP：session_status 工具登记 + 未保存时 ready:false；instructions 含会话自动识别引导 ---
+{
+  const list = await handleMcpRequest({ jsonrpc: '2.0', id: 19, method: 'tools/list' });
+  assert.ok(list.result.tools.some((t) => t.name === 'platform_command_session_status'), 'tools/list 应含 session_status');
+  const notReady = await handleMcpRequest({ jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name: 'platform_command_session_status', arguments: { state: path.join(os.tmpdir(), `pc-absent-${process.pid}.json`) } } });
+  assert.equal(JSON.parse(notReady.result.content[0].text).ready, false, '无会话文件时 ready:false');
+  const init = await handleMcpRequest({ jsonrpc: '2.0', id: 21, method: 'initialize', params: {} });
+  assert.match(init.result.instructions, /platform_command_session_status/, 'instructions 应引导自动识别会话');
+  assert.match(init.result.instructions, /不要反问用户/, 'instructions 应禁止反问用户是否配置会话');
+}
+console.log('mcp session_status tool tests passed.');
 
 // --- chromeLaunchOptions：系统 Chrome 开关（air-gapped 用） ---
 {
