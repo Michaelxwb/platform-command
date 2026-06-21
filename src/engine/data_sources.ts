@@ -1,4 +1,5 @@
 // @ts-nocheck
+import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { renderValue } from './workflow.js';
 import { resolveCommandResource } from '../model/command_store.js';
@@ -91,6 +92,35 @@ const DEFAULT_FETCH_TIMEOUT_MS = Number(process.env.PLATFORM_COMMAND_FETCH_TIMEO
 const DEFAULT_BROWSER_UA = process.env.PLATFORM_COMMAND_USER_AGENT
   || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 
+// 反爬 WAF 需要"看起来像真浏览器"的整套指纹头（UA + sec-ch-ua + Sec-Fetch + timezone…），
+// 缺任一都可能被拒（业务码 9000 "Server is busy"，HTTP 仍 200）。这是内置默认套。
+const BUILTIN_BROWSER_HEADERS = {
+  'User-Agent': DEFAULT_BROWSER_UA,
+  'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"macOS"',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-origin',
+  'Accept-Language': 'zh-CN,zh;q=0.9',
+  'timezone': '+08:00'
+};
+
+// 动态覆盖：PLATFORM_COMMAND_DEFAULT_HEADERS 指向插件抓取的真实请求头 JSON，与内置套合并
+// （抓取值优先）。让浏览器扩展"存头、框架拼头"，避免硬编码 UA/平台与真实浏览器不一致被 WAF 拒。
+let cachedHeaderOverride;
+function browserSessionHeaders() {
+  if (cachedHeaderOverride === undefined) {
+    const p = process.env.PLATFORM_COMMAND_DEFAULT_HEADERS;
+    cachedHeaderOverride = null;
+    if (p) {
+      try { const parsed = JSON.parse(fs.readFileSync(p, 'utf8')); if (parsed && typeof parsed === 'object') cachedHeaderOverride = parsed; }
+      catch { /* 文件缺失/损坏：回退内置套，不致命 */ }
+    }
+  }
+  return { ...BUILTIN_BROWSER_HEADERS, ...(cachedHeaderOverride || {}) };
+}
+
 async function fetchStepJson(step, context) {
   const request = renderValue(step.request || {}, context);
   const { applySiteOrigin } = await import('./site.js');
@@ -140,8 +170,10 @@ async function fetchStepJson(step, context) {
     const origin = new URL(target).origin;
     if (!hasHeader('origin')) headers.Origin = origin;
     if (!hasHeader('referer')) headers.Referer = `${origin}/index.html`;
-    // 反爬 WAF：非浏览器 UA 会被拒（9000 "Server is busy"），按真实浏览器补 User-Agent。
-    if (!hasHeader('user-agent')) headers['User-Agent'] = DEFAULT_BROWSER_UA;
+    // 反爬 WAF：补齐整套浏览器指纹头（命令已显式设置的不覆盖），缺任一都可能被拒（9000）。
+    for (const [k, v] of Object.entries(browserSessionHeaders())) {
+      if (!hasHeader(k.toLowerCase())) headers[k] = v;
+    }
   }
   const init = { method, headers, signal: AbortSignal.timeout(Number(request.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS)) };
   if (body !== undefined) init.body = body;

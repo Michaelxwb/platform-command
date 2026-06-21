@@ -1073,7 +1073,7 @@ try {
     const httpB = await import('node:http');
     let capturedB = null;
     const srvB = httpB.createServer((req, res) => {
-      capturedB = { cookie: req.headers.cookie, csrf: req.headers['x-csrftoken'], origin: req.headers.origin, referer: req.headers.referer, ua: req.headers['user-agent'] };
+      capturedB = { cookie: req.headers.cookie, csrf: req.headers['x-csrftoken'], origin: req.headers.origin, referer: req.headers.referer, ua: req.headers['user-agent'], secChUa: req.headers['sec-ch-ua'], secFetchMode: req.headers['sec-fetch-mode'], timezone: req.headers.timezone };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: { items: [{ name: 'x' }], cursor: { is_end: true } } }));
     });
@@ -1104,6 +1104,9 @@ try {
     assert.equal(capturedB.origin, `http://127.0.0.1:${portB}`, 'Origin 按目标 origin 注入（CSRF 校验需要）');
     assert.ok(capturedB.referer && capturedB.referer.startsWith(`http://127.0.0.1:${portB}/`), 'Referer 按目标 origin 注入');
     assert.ok(capturedB.ua && /Mozilla.*Chrome/.test(capturedB.ua), 'User-Agent 补成浏览器 UA（绕过反爬 WAF 的 9000）');
+    assert.ok(capturedB.secChUa && /Chrome/.test(capturedB.secChUa), 'sec-ch-ua 补齐');
+    assert.equal(capturedB.secFetchMode, 'cors', 'Sec-Fetch-Mode 补齐');
+    assert.equal(capturedB.timezone, '+08:00', 'timezone 补齐');
     const pwRunRecord = JSON.parse(fs.readFileSync(pwExec.runFile, 'utf8'));
     assert.equal(pwRunRecord.userId, 'alice');
     assert.equal(pwRunRecord.adapter, 'node_http');
