@@ -1111,6 +1111,37 @@ try {
     fs.rmSync(stateB, { force: true });
   }
 
+  // FORCE_BROWSER：有 storageState 但 PLATFORM_COMMAND_FORCE_BROWSER=1 → 强制走 Playwright（复用浏览器实时
+  // 会话，解决 soar csrf 轮换导致 node 直连业务码 9000）。csrf 取自浏览器，而非 storageState 静态值。
+  {
+    const forceFetchQueue = [];
+    const forceContext = {
+      request: { fetch: async () => { const n = forceFetchQueue.shift() || { status: 200, body: {} }; return { status: () => n.status, ok: () => n.status < 400, json: async () => n.body, text: async () => JSON.stringify(n.body) }; } },
+      cookies: async () => [{ name: 'csrf_token', value: 'fresh-from-browser' }],
+      pages: () => [],
+      newPage: async () => ({ url: () => 'about:blank', goto: async () => {} }),
+      close: async () => {}
+    };
+    const forceBrowserObj = { isConnected: () => true, newContext: async () => forceContext, close: async () => {} };
+    playwrightAdapter.__setPlaywrightLoader(async () => ({ chromium: { launch: async () => forceBrowserObj } }));
+    const stateF = path.join(os.tmpdir(), `pc-stateF-${process.pid}.json`);
+    fs.writeFileSync(stateF, JSON.stringify({ cookies: [{ name: 'csrf_token', value: 'stale-in-file', domain: 'api.test', path: '/' }], origins: [] }));
+    const savedStateF = process.env.PLATFORM_COMMAND_STORAGE_STATE;
+    const savedForce = process.env.PLATFORM_COMMAND_FORCE_BROWSER;
+    process.env.PLATFORM_COMMAND_STORAGE_STATE = stateF;
+    process.env.PLATFORM_COMMAND_FORCE_BROWSER = '1';
+    forceFetchQueue.push({ status: 200, body: { data: { items: [{ name: 'viaBrowser' }] } } });
+    const forceExec = await executeCommand('demo.sess_pw', {}, { dryRun: false, confirm: true, commandsDir: sessCmdDir });
+    if (savedStateF === undefined) delete process.env.PLATFORM_COMMAND_STORAGE_STATE; else process.env.PLATFORM_COMMAND_STORAGE_STATE = savedStateF;
+    if (savedForce === undefined) delete process.env.PLATFORM_COMMAND_FORCE_BROWSER; else process.env.PLATFORM_COMMAND_FORCE_BROWSER = savedForce;
+    assert.equal(forceExec.status, 'executed');
+    assert.equal(forceExec.adapter, 'playwright', 'FORCE_BROWSER=1 应走 Playwright 而非 node_http');
+    assert.deepEqual(forceExec.rows, [{ name: 'viaBrowser' }]);
+    fs.rmSync(forceExec.runFile, { force: true });
+    fs.rmSync(stateF, { force: true });
+    playwrightAdapter.__setPlaywrightLoader(async () => ({ chromium: { launch: async () => fakeBrowser } }));
+  }
+
   // 服务器模式 dry-run readiness：playwright 可用 → ready
   const pwDry = await executeCommand('demo.sess_pw', {}, { dryRun: true, commandsDir: sessCmdDir });
   assert.equal(pwDry.readiness.ready, true);

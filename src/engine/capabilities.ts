@@ -49,6 +49,15 @@ async function resolveAdapter(command, site) {
   // 不启动浏览器。http_json 命令（搜客户/发邮件/同步等）在无 chromium 的 air-gapped 环境也能跑；
   // 浏览器只留给导出（interceptFlow，需 MITM）。与原 skill 用 requests+Cookie 一致。
   const statePath = resolveServerMode().storageStatePath;
+  // 强制走浏览器（PLATFORM_COMMAND_FORCE_BROWSER=1）：node 直连用 storageState 里的"静态"csrf，
+  // 而 soar 等平台每次加载页面会轮换 csrf_token，旧 csrf 会被判失效（业务码非 0，如 9000）。
+  // 这条路先 page.goto 预热刷新 csrf，再用浏览器实时 cookie/csrf 发请求（与导出复用同一条已验证会话）。
+  const forceBrowser = process.env.PLATFORM_COMMAND_FORCE_BROWSER === '1' || process.env.PLATFORM_COMMAND_FORCE_BROWSER === 'true';
+  if (statePath && forceBrowser) {
+    const { ensurePlaywrightSession, resolveSessionFromPlaywright } = await import('../adapter/playwright_adapter.js');
+    await ensurePlaywrightSession(targetUrl, { unauthorizedHint: command.runtime?.unauthorizedHint });
+    return { viaBrowser: true, adapter: 'playwright', session: await resolveSessionFromPlaywright(targetUrl) };
+  }
   if (statePath) {
     const { readStorageState } = await import('../adapter/playwright_adapter.js');
     const host = new URL(targetUrl).hostname;
